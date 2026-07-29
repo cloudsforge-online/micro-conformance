@@ -1,0 +1,28 @@
+{
+  "formatVersion": 1,
+  "scenario": "trade",
+  "step": "a new account has nothing billed",
+  "seq": 3,
+  "target": "crucible",
+  "request": {
+    "method": "GET",
+    "path": "/billing",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "performanceFeeBps": 1500,
+      "feePaid": 0,
+      "feeOwed": 0,
+      "settlements": []
+    }
+  },
+  "timing": "instant"
+}

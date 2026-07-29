@@ -1,0 +1,137 @@
+{
+  "formatVersion": 1,
+  "scenario": "entitlements",
+  "step": "read the cosmetics catalogue",
+  "seq": 1,
+  "target": "pay",
+  "request": {
+    "method": "GET",
+    "path": "/cosmetics",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": [
+      {
+        "id": "skin_rustic_cabin",
+        "kind": "homestead_skin",
+        "name": "Rustic Cabin",
+        "description": "A weathered log-cabin look for your homestead tile.",
+        "priceShards": 150,
+        "rarity": "common"
+      },
+      {
+        "id": "skin_bunker",
+        "kind": "homestead_skin",
+        "name": "Concrete Bunker",
+        "description": "A brutalist bunker facade for your homestead tile.",
+        "priceShards": 350,
+        "rarity": "rare"
+      },
+      {
+        "id": "skin_greenhouse",
+        "kind": "homestead_skin",
+        "name": "Glass Greenhouse",
+        "description": "A verdant glasshouse skin for your homestead tile.",
+        "priceShards": 150,
+        "rarity": "common"
+      },
+      {
+        "id": "frame_iron",
+        "kind": "avatar_frame",
+        "name": "Iron Frame",
+        "description": "A riveted iron border around your avatar.",
+        "priceShards": 150,
+        "rarity": "common"
+      },
+      {
+        "id": "frame_ash",
+        "kind": "avatar_frame",
+        "name": "Ashwood Frame",
+        "description": "A charred-timber border around your avatar.",
+        "priceShards": 350,
+        "rarity": "rare"
+      },
+      {
+        "id": "frame_ember",
+        "kind": "avatar_frame",
+        "name": "Ember Frame",
+        "description": "A glowing ember border — earned along the Season Pass track.",
+        "priceShards": 600,
+        "seasonPassExclusive": true,
+        "rarity": "legendary"
+      },
+      {
+        "id": "banner_dawn",
+        "kind": "map_banner",
+        "name": "Dawn Banner",
+        "description": "A sunrise banner shown over your holdings on the map.",
+        "priceShards": 150,
+        "rarity": "common"
+      },
+      {
+        "id": "banner_stormfront",
+        "kind": "map_banner",
+        "name": "Stormfront Banner",
+        "description": "A rolling-storm banner shown over your holdings on the map.",
+        "priceShards": 350,
+        "rarity": "rare"
+      },
+      {
+        "id": "crest_wolf",
+        "kind": "commune_crest",
+        "name": "Wolf Crest",
+        "description": "A wolf sigil for your commune emblem.",
+        "priceShards": 200,
+        "rarity": "common"
+      },
+      {
+        "id": "crest_phoenix",
+        "kind": "commune_crest",
+        "name": "Phoenix Crest",
+        "description": "A rising-phoenix sigil — unlocked on the Season Pass track.",
+        "priceShards": 600,
+        "seasonPassExclusive": true,
+        "rarity": "legendary"
+      },
+      {
+        "id": "color_amber",
+        "kind": "name_color",
+        "name": "Amber Name",
+        "description": "Renders your display name in warm amber.",
+        "priceShards": 120,
+        "rarity": "common"
+      },
+      {
+        "id": "color_crimson",
+        "kind": "name_color",
+        "name": "Crimson Name",
+        "description": "Renders your display name in deep crimson.",
+        "priceShards": 300,
+        "rarity": "rare"
+      },
+      {
+        "id": "flair_survivor",
+        "kind": "herald_flair",
+        "name": "Survivor Flair",
+        "description": "A small sigil beside your name in the public herald reports.",
+        "priceShards": 150,
+        "rarity": "common"
+      },
+      {
+        "id": "flair_founder",
+        "kind": "herald_flair",
+        "name": "Founder Flair",
+        "description": "A founder sigil in the herald reports — unlocked on the Season Pass track.",
+        "priceShards": 600,
+        "seasonPassExclusive": true,
+        "rarity": "legendary"
+      }
+    ]
+  },
+  "timing": "instant"
+}

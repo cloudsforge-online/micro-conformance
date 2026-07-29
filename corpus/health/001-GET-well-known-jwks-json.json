@@ -1,0 +1,33 @@
+{
+  "formatVersion": 1,
+  "scenario": "health",
+  "step": "nimbus publishes a verifiable signing key",
+  "seq": 1,
+  "target": "nimbus",
+  "request": {
+    "method": "GET",
+    "path": "/.well-known/jwks.json",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "keys": [
+        {
+          "e": "AQAB",
+          "n": "01TpqBrN2JOWOjiilzAoIF4EQYK-Kvftq9NN5D4t8FEfP2WW2L52-qo60XSqCYIKUsJJ3wp-xBElSUCRzM4xUBJw6cA6d4X-2bRdgV9mhSarqj3lNiAfeVRHbR5r2Uzyt4CuPVRAB2A46KXVG-3E3FAv81LxpeAzyh8Vbul3urLqbdb5GklcNWov3YNQv4c4KlB3Mr_mFt6sXqRl-c61bGWujJqMbhomlq3y5Go6DJABD0ziMdAfVXYTSr7dtWGR0u--kllBsEXUQmC95DigAFwsCZH4KNFXOIqVLQpCN58-xcraifGwAZrTFICGvQECPr-BLqqR8oy5Bcwm5aWILw",
+          "alg": "RS256",
+          "kid": "f396254af487f7bc",
+          "kty": "RSA",
+          "use": "sig"
+        }
+      ]
+    }
+  },
+  "timing": "instant"
+}

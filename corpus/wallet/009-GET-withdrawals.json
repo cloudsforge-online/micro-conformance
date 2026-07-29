@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "scenario": "wallet",
+  "step": "the withdrawal queue reads back empty",
+  "seq": 9,
+  "target": "pay",
+  "request": {
+    "method": "GET",
+    "path": "/withdrawals",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "withdrawals": []
+    }
+  },
+  "timing": "instant"
+}

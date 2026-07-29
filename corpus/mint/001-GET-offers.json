@@ -1,0 +1,78 @@
+{
+  "formatVersion": 1,
+  "scenario": "mint",
+  "step": "read the offer tiers",
+  "seq": 1,
+  "target": "mint",
+  "request": {
+    "method": "GET",
+    "path": "/offers",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": [
+      {
+        "id": "spark",
+        "name": "Spark",
+        "blurb": "A fixed-supply ERC-20 on the EVM chain you pick — the simplest way to mint a token.",
+        "features": [
+          "Fixed supply",
+          "ERC-20 standard",
+          "One EVM chain"
+        ],
+        "maxChains": 1,
+        "standardsIncluded": [
+          "ERC-20"
+        ],
+        "usdPrice": 14.99,
+        "shardPrice": 1500,
+        "suspended": false,
+        "suspendedReason": null
+      },
+      {
+        "id": "forge",
+        "name": "Forge",
+        "blurb": "A mintable, burnable, ownable ERC-20 on the EVM chain you pick.",
+        "features": [
+          "Mint & burn",
+          "Ownable",
+          "One EVM chain"
+        ],
+        "maxChains": 1,
+        "standardsIncluded": [
+          "ERC-20"
+        ],
+        "usdPrice": 39.99,
+        "shardPrice": 4000,
+        "badge": "Popular",
+        "suspended": false,
+        "suspendedReason": null
+      },
+      {
+        "id": "foundry",
+        "name": "Foundry",
+        "blurb": "Full-feature token on the EVM or Solana chain you pick. Pausable and hard-capped on EVM; an SPL mint has neither primitive.",
+        "features": [
+          "Mint / burn / pausable / capped (EVM)",
+          "One EVM or Solana chain"
+        ],
+        "maxChains": 1,
+        "standardsIncluded": [
+          "ERC-20",
+          "SPL"
+        ],
+        "usdPrice": 89.99,
+        "shardPrice": 9000,
+        "badge": "Best value",
+        "suspended": false,
+        "suspendedReason": null
+      }
+    ]
+  },
+  "timing": "instant"
+}

@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "scenario": "mint",
+  "step": "capabilities without a token are refused",
+  "seq": 2,
+  "target": "mint",
+  "request": {
+    "method": "GET",
+    "path": "/capabilities",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "error": "missing bearer token",
+      "code": "unauthorized",
+      "requestId": "<uuid>"
+    }
+  },
+  "timing": "instant"
+}

@@ -1,0 +1,32 @@
+{
+  "formatVersion": 1,
+  "scenario": "entitlements",
+  "step": "read the season pass offer",
+  "seq": 3,
+  "target": "pay",
+  "request": {
+    "method": "GET",
+    "path": "/season-pass",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "id": "season_1_ashfall",
+      "name": "Season 1: Ashfall Pass",
+      "priceShards": 500,
+      "priceUsd": "<number>",
+      "description": "This season's cosmetic pass. Progressively unlocks a track of exclusive, purely-visual cosmetics as you play. No gameplay advantage — decoration only.",
+      "cosmeticTrack": [
+        "frame_ember",
+        "crest_phoenix",
+        "flair_founder"
+      ]
+    }
+  },
+  "timing": "instant"
+}

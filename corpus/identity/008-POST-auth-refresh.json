@@ -1,0 +1,27 @@
+{
+  "formatVersion": 1,
+  "scenario": "identity",
+  "step": "a burnt refresh token is refused",
+  "seq": 8,
+  "target": "nimbus",
+  "request": {
+    "method": "POST",
+    "path": "/auth/refresh",
+    "headers": {},
+    "body": {
+      "refreshToken": "<redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "accessToken": "<redacted>",
+      "refreshToken": "<redacted>"
+    }
+  },
+  "timing": "instant"
+}

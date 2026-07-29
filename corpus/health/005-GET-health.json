@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "scenario": "health",
+  "step": "custody reports healthy",
+  "seq": 5,
+  "target": "keyvault",
+  "request": {
+    "method": "GET",
+    "path": "/health",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "ok": true,
+      "service": "forge-keyvault",
+      "vault": "docker"
+    }
+  },
+  "timing": "instant"
+}

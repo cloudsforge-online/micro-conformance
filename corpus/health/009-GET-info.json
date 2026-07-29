@@ -1,0 +1,42 @@
+{
+  "formatVersion": 1,
+  "scenario": "health",
+  "step": "the chain node reports its state",
+  "seq": 9,
+  "target": "hearth-rest",
+  "request": {
+    "method": "GET",
+    "path": "/info",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-origin": "*",
+      "content-type": "application/json"
+    },
+    "body": {
+      "network": "hearth-testnet",
+      "coin": "EMBER",
+      "model": "account",
+      "chainId": 7412,
+      "height": "<number>",
+      "tip": "<hash>",
+      "genesis": "<hash>",
+      "commonsAddress": "<evm-address>",
+      "totalDifficulty": "<decimal-string>",
+      "hashrate": "<number>",
+      "mining": false,
+      "peers": "<number>",
+      "mempool": "<number>",
+      "difficultyTarget": "<redacted>",
+      "minerAddress": "<evm-address>",
+      "gasLimit": 30000000,
+      "rpcGasCap": 10000000,
+      "rpcTimeBudgetMs": 1000,
+      "jsonRpc": ":8545/"
+    }
+  },
+  "timing": "instant"
+}

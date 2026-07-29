@@ -1,0 +1,33 @@
+{
+  "formatVersion": 1,
+  "scenario": "health",
+  "step": "lantern reports healthy",
+  "seq": 7,
+  "target": "lantern",
+  "request": {
+    "method": "GET",
+    "path": "/health",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "cache-control": "no-store",
+      "content-type": "application/json"
+    },
+    "body": {
+      "ok": true,
+      "service": "lantern",
+      "db": true,
+      "ingested": "<number>",
+      "written": "<number>",
+      "dropped": "<number>",
+      "buffered": "<number>",
+      "pending": "<number>",
+      "rateLimited": "<number>",
+      "uptimeSec": "<number>"
+    }
+  },
+  "timing": "instant"
+}

@@ -1,0 +1,40 @@
+{
+  "formatVersion": 1,
+  "scenario": "entitlements",
+  "step": "read the private worlds catalogue",
+  "seq": 4,
+  "target": "pay",
+  "request": {
+    "method": "GET",
+    "path": "/private-worlds",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": [
+      {
+        "id": "private_skirmish",
+        "name": "Private Skirmish World",
+        "priceShards": 1800,
+        "priceUsd": "<number>",
+        "seasonDays": 30,
+        "maxPlayers": 12,
+        "description": "A private 30-day world for you and up to 12 friends. Same rules as public worlds — just your own lobby."
+      },
+      {
+        "id": "private_saga",
+        "name": "Private Saga World",
+        "priceShards": 2500,
+        "priceUsd": "<number>",
+        "seasonDays": 90,
+        "maxPlayers": 40,
+        "description": "A private full-season (90-day) world for up to 40 players. Standard ruleset; invite-only."
+      }
+    ]
+  },
+  "timing": "instant"
+}

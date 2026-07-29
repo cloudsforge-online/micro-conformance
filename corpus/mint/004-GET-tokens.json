@@ -1,0 +1,23 @@
+{
+  "formatVersion": 1,
+  "scenario": "mint",
+  "step": "a new account has no token orders",
+  "seq": 4,
+  "target": "mint",
+  "request": {
+    "method": "GET",
+    "path": "/tokens",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": []
+  },
+  "timing": "instant"
+}

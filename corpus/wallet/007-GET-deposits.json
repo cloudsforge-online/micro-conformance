@@ -1,0 +1,36 @@
+{
+  "formatVersion": 1,
+  "scenario": "wallet",
+  "step": "the address is listed",
+  "seq": 7,
+  "target": "pay",
+  "request": {
+    "method": "GET",
+    "path": "/deposits",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "addresses": [
+        {
+          "id": "<uuid>",
+          "userId": "<uuid>",
+          "coin": "EMBER",
+          "network": "testnet",
+          "address": "<evm-address>",
+          "pending": "0",
+          "createdAt": "<timestamp>"
+        }
+      ],
+      "payments": []
+    }
+  },
+  "timing": "instant"
+}

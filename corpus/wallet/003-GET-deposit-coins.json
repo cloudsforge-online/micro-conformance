@@ -1,0 +1,72 @@
+{
+  "formatVersion": 1,
+  "scenario": "wallet",
+  "step": "read the deposit chain registry",
+  "seq": 3,
+  "target": "pay",
+  "request": {
+    "method": "GET",
+    "path": "/deposit-coins",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": [
+      {
+        "coin": "EMBER",
+        "name": "Ember",
+        "family": "hearth",
+        "keyvaultChain": "ember",
+        "decimals": 18,
+        "confirmations": 60,
+        "explorerAddrTestnet": "http://localhost:8645/address/",
+        "explorerAddrMainnet": ""
+      },
+      {
+        "coin": "BTC",
+        "name": "Bitcoin",
+        "family": "bitcoin",
+        "keyvaultChain": "bitcoin",
+        "decimals": 8,
+        "confirmations": 1,
+        "explorerAddrTestnet": "https://blockstream.info/testnet/address/",
+        "explorerAddrMainnet": "https://blockstream.info/address/"
+      },
+      {
+        "coin": "ETH",
+        "name": "Ethereum",
+        "family": "evm",
+        "keyvaultChain": "ethereum",
+        "decimals": 18,
+        "confirmations": 12,
+        "explorerAddrTestnet": "https://sepolia.etherscan.io/address/",
+        "explorerAddrMainnet": "https://etherscan.io/address/"
+      },
+      {
+        "coin": "SOL",
+        "name": "Solana",
+        "family": "solana",
+        "keyvaultChain": "solana",
+        "decimals": 9,
+        "confirmations": 1,
+        "explorerAddrTestnet": "https://explorer.solana.com/address/",
+        "explorerAddrMainnet": "https://explorer.solana.com/address/"
+      },
+      {
+        "coin": "XRP",
+        "name": "XRP",
+        "family": "xrp",
+        "keyvaultChain": "xrp",
+        "decimals": 6,
+        "confirmations": 1,
+        "explorerAddrTestnet": "https://testnet.xrpl.org/accounts/",
+        "explorerAddrMainnet": "https://livenet.xrpl.org/accounts/"
+      }
+    ]
+  },
+  "timing": "instant"
+}

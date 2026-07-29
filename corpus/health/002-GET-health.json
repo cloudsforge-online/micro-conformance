@@ -1,0 +1,24 @@
+{
+  "formatVersion": 1,
+  "scenario": "health",
+  "step": "game reports healthy",
+  "seq": 2,
+  "target": "game",
+  "request": {
+    "method": "GET",
+    "path": "/health",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "ok": true,
+      "service": "game"
+    }
+  },
+  "timing": "instant"
+}

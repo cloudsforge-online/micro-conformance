@@ -1,0 +1,23 @@
+{
+  "formatVersion": 1,
+  "scenario": "identity",
+  "step": "the handed-off token works on another service",
+  "seq": 6,
+  "target": "game",
+  "request": {
+    "method": "GET",
+    "path": "/worlds",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": []
+  },
+  "timing": "instant"
+}

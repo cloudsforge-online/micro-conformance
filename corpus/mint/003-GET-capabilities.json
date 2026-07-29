@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "scenario": "mint",
+  "step": "read the account capabilities",
+  "seq": 3,
+  "target": "mint",
+  "request": {
+    "method": "GET",
+    "path": "/capabilities",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "mainnetDeploys": false
+    }
+  },
+  "timing": "instant"
+}

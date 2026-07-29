@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+# Never. The harness reads the estate's .env to build its refusal list; a copy landing here
+# would put every service token in the repository that exists to prove nothing leaks.
+.env
+.env.*
+
+# Comparison output is a working artefact of one run against one target, not a baseline.
+reports/

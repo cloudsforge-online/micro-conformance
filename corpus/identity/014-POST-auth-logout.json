@@ -1,0 +1,23 @@
+{
+  "formatVersion": 1,
+  "scenario": "identity",
+  "step": "revoke the handed-off session",
+  "seq": 14,
+  "target": "nimbus",
+  "request": {
+    "method": "POST",
+    "path": "/auth/logout",
+    "headers": {},
+    "body": {
+      "refreshToken": "<redacted>"
+    }
+  },
+  "response": {
+    "status": 204,
+    "headers": {
+      "access-control-allow-credentials": "true"
+    },
+    "body": null
+  },
+  "timing": "instant"
+}

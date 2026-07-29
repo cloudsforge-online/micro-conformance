@@ -1,0 +1,29 @@
+{
+  "formatVersion": 1,
+  "scenario": "wallet",
+  "step": "an unsupported coin is refused",
+  "seq": 8,
+  "target": "pay",
+  "request": {
+    "method": "POST",
+    "path": "/deposits",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": {
+      "coin": "NOTACOIN",
+      "network": "testnet"
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "error": "invalid body",
+      "code": "validation"
+    }
+  },
+  "timing": "instant"
+}

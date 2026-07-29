@@ -1,0 +1,87 @@
+{
+  "formatVersion": 1,
+  "base": "local",
+  "recordedAt": "2026-07-29T23:54:28.531Z",
+  "scenarios": [
+    {
+      "name": "health",
+      "title": "Every service answers its health route, in the shape it answers it today",
+      "outcome": "recorded",
+      "interactions": 10,
+      "cleanupErrors": []
+    },
+    {
+      "name": "identity",
+      "title": "An account is created, recognised, handed between products, rotated and re-secured",
+      "outcome": "recorded",
+      "interactions": 15,
+      "cleanupErrors": []
+    },
+    {
+      "name": "wallet",
+      "title": "A wallet reads back, coins are priced, and a deposit address is issued once",
+      "outcome": "recorded",
+      "interactions": 10,
+      "cleanupErrors": []
+    },
+    {
+      "name": "entitlements",
+      "title": "The storefront lists its goods and an account lists what it owns",
+      "outcome": "recorded",
+      "interactions": 5,
+      "cleanupErrors": []
+    },
+    {
+      "name": "mint",
+      "title": "The chain registry, the offer tiers and the account capabilities read back",
+      "outcome": "recorded",
+      "interactions": 5,
+      "cleanupErrors": []
+    },
+    {
+      "name": "trade",
+      "title": "The whole trading catalogue reads back — strategies, pairs, presets and pricing",
+      "outcome": "recorded",
+      "interactions": 5,
+      "cleanupErrors": []
+    },
+    {
+      "name": "game",
+      "title": "Worlds list, a world reads back in detail, and the cosmetic catalogue loads",
+      "outcome": "recorded",
+      "reason": "no world exists on this estate, so the world detail and roster reads were not recorded",
+      "interactions": 3,
+      "cleanupErrors": []
+    },
+    {
+      "name": "chain",
+      "title": "The node answers on both listeners, on the expected chain, at a height that is a number",
+      "outcome": "recorded",
+      "interactions": 7,
+      "cleanupErrors": []
+    }
+  ],
+  "totals": {
+    "interactions": 60,
+    "recorded": 8,
+    "skipped": 0,
+    "failed": 0
+  },
+  "normalisationRules": [
+    "uuid",
+    "jwt",
+    "iso-timestamp",
+    "epoch-millis",
+    "email",
+    "handle",
+    "evm-address",
+    "volatile-hash-key",
+    "hash-32",
+    "bech32-address",
+    "xrp-address",
+    "base58-address",
+    "hex-quantity",
+    "gauge-number",
+    "decimal-string"
+  ]
+}

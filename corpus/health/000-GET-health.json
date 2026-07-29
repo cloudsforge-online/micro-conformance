@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "scenario": "health",
+  "step": "nimbus reports healthy",
+  "seq": 0,
+  "target": "nimbus",
+  "request": {
+    "method": "GET",
+    "path": "/health",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "ok": true,
+      "service": "nimbus"
+    }
+  },
+  "timing": "instant"
+}

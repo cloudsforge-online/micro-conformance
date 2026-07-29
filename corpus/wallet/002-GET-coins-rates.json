@@ -1,0 +1,67 @@
+{
+  "formatVersion": 1,
+  "scenario": "wallet",
+  "step": "read the price board",
+  "seq": 2,
+  "target": "pay",
+  "request": {
+    "method": "GET",
+    "path": "/coins/rates",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": [
+      {
+        "coin": "EMBER",
+        "shardsPerCoin": "<number>",
+        "usd": "<number>",
+        "source": "administered",
+        "quotedAt": "<timestamp>",
+        "ageSeconds": "<number>",
+        "usable": true
+      },
+      {
+        "coin": "BTC",
+        "shardsPerCoin": "<number>",
+        "usd": "<number>",
+        "source": "market",
+        "quotedAt": "<timestamp>",
+        "ageSeconds": "<number>",
+        "usable": true
+      },
+      {
+        "coin": "ETH",
+        "shardsPerCoin": "<number>",
+        "usd": "<number>",
+        "source": "market",
+        "quotedAt": "<timestamp>",
+        "ageSeconds": "<number>",
+        "usable": true
+      },
+      {
+        "coin": "SOL",
+        "shardsPerCoin": "<number>",
+        "usd": "<number>",
+        "source": "market",
+        "quotedAt": "<timestamp>",
+        "ageSeconds": "<number>",
+        "usable": true
+      },
+      {
+        "coin": "XRP",
+        "shardsPerCoin": "<number>",
+        "usd": "<number>",
+        "source": "market",
+        "quotedAt": "<timestamp>",
+        "ageSeconds": "<number>",
+        "usable": true
+      }
+    ]
+  },
+  "timing": "instant"
+}

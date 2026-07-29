@@ -1,0 +1,21 @@
+{
+  "name": "@cloudsforge/conformance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The characterisation harness. Records what the estate does, so a replacement can be proven equivalent rather than assumed so.",
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "engines": { "node": ">=22" },
+  "bin": { "conformance": "src/cli.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "conformance": "node --import tsx src/cli.ts",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

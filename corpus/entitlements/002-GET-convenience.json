@@ -1,0 +1,46 @@
+{
+  "formatVersion": 1,
+  "scenario": "entitlements",
+  "step": "read the convenience catalogue",
+  "seq": 2,
+  "target": "pay",
+  "request": {
+    "method": "GET",
+    "path": "/convenience",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": [
+      {
+        "id": "extra_loadout_slots",
+        "name": "Extra Loadout Preset Slots",
+        "description": "Save more named action-queue presets to swap between. Presets are shortcuts only — they queue the same actions anyone can queue for free.",
+        "priceShards": 200
+      },
+      {
+        "id": "detailed_intel_report",
+        "name": "Detailed Personal Report",
+        "description": "A richer personal end-of-day recap with extra charts of YOUR OWN resource/morale trends. Shows nothing hidden about other players.",
+        "priceShards": 120
+      },
+      {
+        "id": "extended_roster_filters",
+        "name": "Extended Roster Filters",
+        "description": "Extra sort/filter controls on the roster list you can already see. Pure UI convenience.",
+        "priceShards": 150
+      },
+      {
+        "id": "extended_report_history",
+        "name": "Extended Report History",
+        "description": "Keep more past days of your own reports scrollable in the client. Informational only.",
+        "priceShards": 150
+      }
+    ]
+  },
+  "timing": "instant"
+}

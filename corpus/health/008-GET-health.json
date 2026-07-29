@@ -1,0 +1,33 @@
+{
+  "formatVersion": 1,
+  "scenario": "health",
+  "step": "beacon reports healthy",
+  "seq": 8,
+  "target": "beacon",
+  "request": {
+    "method": "GET",
+    "path": "/health",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "cache-control": "no-store",
+      "content-type": "application/json"
+    },
+    "body": {
+      "ok": true,
+      "service": "beacon",
+      "db": true,
+      "checksRun": "<number>",
+      "checksWritten": "<number>",
+      "runsExecuted": "<number>",
+      "pending": "<number>",
+      "dropped": "<number>",
+      "queueDepth": "<number>",
+      "uptimeSec": "<number>"
+    }
+  },
+  "timing": "instant"
+}

@@ -1,0 +1,23 @@
+{
+  "formatVersion": 1,
+  "scenario": "trade",
+  "step": "a new account has no bots",
+  "seq": 1,
+  "target": "crucible",
+  "request": {
+    "method": "GET",
+    "path": "/bots",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": []
+  },
+  "timing": "instant"
+}

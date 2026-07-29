@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "scenario": "identity",
+  "step": "an unauthenticated read is refused",
+  "seq": 2,
+  "target": "nimbus",
+  "request": {
+    "method": "GET",
+    "path": "/auth/me",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "error": "Missing bearer token",
+      "code": "unauthorized"
+    }
+  },
+  "timing": "instant"
+}

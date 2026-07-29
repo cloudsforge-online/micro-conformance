@@ -1,0 +1,30 @@
+{
+  "formatVersion": 1,
+  "scenario": "identity",
+  "step": "exchange the code for tokens",
+  "seq": 4,
+  "target": "nimbus",
+  "request": {
+    "method": "POST",
+    "path": "/auth/exchange",
+    "headers": {
+      "origin": "http://localhost:3000"
+    },
+    "body": {
+      "code": "<redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "access-control-allow-origin": "http://localhost:3000",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "accessToken": "<redacted>",
+      "refreshToken": "<redacted>"
+    }
+  },
+  "timing": "instant"
+}

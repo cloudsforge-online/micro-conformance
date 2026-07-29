@@ -1,0 +1,34 @@
+{
+  "formatVersion": 1,
+  "scenario": "entitlements",
+  "step": "read what the account owns",
+  "seq": 0,
+  "target": "pay",
+  "request": {
+    "method": "GET",
+    "path": "/entitlements",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "entitlements": [],
+      "convenience": {
+        "extra_loadout_slots": false,
+        "detailed_intel_report": false,
+        "extended_roster_filters": false,
+        "extended_report_history": false
+      },
+      "cosmetics": [],
+      "seasonPass": false,
+      "unlockedCosmetics": []
+    }
+  },
+  "timing": "instant"
+}

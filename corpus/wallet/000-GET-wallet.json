@@ -1,0 +1,54 @@
+{
+  "formatVersion": 1,
+  "scenario": "wallet",
+  "step": "read the wallet",
+  "seq": 0,
+  "target": "pay",
+  "request": {
+    "method": "GET",
+    "path": "/wallet",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "userId": "<uuid>",
+      "shards": 0,
+      "ledger": [],
+      "coins": [
+        {
+          "coin": "EMBER",
+          "network": "testnet",
+          "amount": "<decimal-string>"
+        },
+        {
+          "coin": "BTC",
+          "network": "testnet",
+          "amount": "<decimal-string>"
+        },
+        {
+          "coin": "ETH",
+          "network": "testnet",
+          "amount": "<decimal-string>"
+        },
+        {
+          "coin": "SOL",
+          "network": "testnet",
+          "amount": "<decimal-string>"
+        },
+        {
+          "coin": "XRP",
+          "network": "testnet",
+          "amount": "<decimal-string>"
+        }
+      ]
+    }
+  },
+  "timing": "instant"
+}

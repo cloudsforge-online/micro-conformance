@@ -1,0 +1,586 @@
+{
+  "formatVersion": 1,
+  "scenario": "trade",
+  "step": "read the catalogue",
+  "seq": 0,
+  "target": "crucible",
+  "request": {
+    "method": "GET",
+    "path": "/catalog",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "strategies": [
+        {
+          "id": "buy_hold",
+          "name": "Buy & Hold",
+          "family": "benchmark",
+          "tagline": "Buy on the first bar, never sell.",
+          "description": "The benchmark every other rule is measured against. It buys the whole allocation on the first candle and holds to the end. If a strategy cannot beat this after fees, it is costing you money to be clever.",
+          "weakness": "Takes the full drawdown of every crash, in full, every time.",
+          "params": []
+        },
+        {
+          "id": "sma_cross",
+          "name": "SMA Crossover",
+          "family": "trend",
+          "tagline": "Buy when the fast average crosses above the slow one.",
+          "description": "The oldest trend rule there is. Two simple moving averages; go long when the fast one crosses above the slow one, flat when it crosses back below. Slow to enter and slow to leave, which is the point — it ignores noise.",
+          "weakness": "Whipsaws badly in a sideways market, paying a fee on every false cross.",
+          "params": [
+            {
+              "key": "fast",
+              "label": "Fast period",
+              "help": "Bars in the fast average. Lower reacts sooner and trades more.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 20,
+              "unit": "bars"
+            },
+            {
+              "key": "slow",
+              "label": "Slow period",
+              "help": "Bars in the slow average. Must be longer than the fast one.",
+              "min": 5,
+              "max": 400,
+              "step": 1,
+              "default": 50,
+              "unit": "bars"
+            }
+          ]
+        },
+        {
+          "id": "ema_cross",
+          "name": "EMA Crossover",
+          "family": "trend",
+          "tagline": "A crossover that weights recent bars more heavily.",
+          "description": "Same shape as the SMA cross, but exponential averages weight recent candles far more, so entries and exits land earlier. Earlier is not automatically better: it also reacts to noise the simple average would have smoothed away.",
+          "weakness": "Earlier signals mean more of them, and more of them are wrong.",
+          "params": [
+            {
+              "key": "fast",
+              "label": "Fast period",
+              "help": "Bars in the fast EMA.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 12,
+              "unit": "bars"
+            },
+            {
+              "key": "slow",
+              "label": "Slow period",
+              "help": "Bars in the slow EMA.",
+              "min": 5,
+              "max": 400,
+              "step": 1,
+              "default": 26,
+              "unit": "bars"
+            }
+          ]
+        },
+        {
+          "id": "macd_trend",
+          "name": "MACD Trend",
+          "family": "momentum",
+          "tagline": "Trade the momentum of the trend, not the trend.",
+          "description": "MACD is the gap between a fast and a slow EMA; the signal line is an EMA of that gap. Going long when MACD crosses above its signal means buying when momentum turns up, which usually happens before price does.",
+          "weakness": "Momentum turns up inside downtrends constantly. Needs a trend filter to be worth much.",
+          "params": [
+            {
+              "key": "fast",
+              "label": "Fast period",
+              "help": "Fast EMA feeding the MACD line.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 12,
+              "unit": "bars"
+            },
+            {
+              "key": "slow",
+              "label": "Slow period",
+              "help": "Slow EMA feeding the MACD line.",
+              "min": 5,
+              "max": 200,
+              "step": 1,
+              "default": 26,
+              "unit": "bars"
+            },
+            {
+              "key": "signal",
+              "label": "Signal period",
+              "help": "EMA of the MACD line that triggers the cross.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 9,
+              "unit": "bars"
+            }
+          ]
+        },
+        {
+          "id": "rsi_reversion",
+          "name": "RSI Mean Reversion",
+          "family": "mean_reversion",
+          "tagline": "Buy exhaustion, sell euphoria.",
+          "description": "RSI measures how one-sided recent moves have been. Buy when it falls under the oversold line and sell when it rises past the overbought one — a bet that violent moves overshoot and snap back.",
+          "weakness": "In a real crash, oversold gets more oversold. This rule buys the entire way down.",
+          "params": [
+            {
+              "key": "period",
+              "label": "RSI period",
+              "help": "Bars in the RSI calculation.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 14,
+              "unit": "bars"
+            },
+            {
+              "key": "oversold",
+              "label": "Buy below",
+              "help": "RSI level that triggers a buy.",
+              "min": 5,
+              "max": 50,
+              "step": 1,
+              "default": 30
+            },
+            {
+              "key": "overbought",
+              "label": "Sell above",
+              "help": "RSI level that triggers a sell.",
+              "min": 50,
+              "max": 95,
+              "step": 1,
+              "default": 70
+            }
+          ]
+        },
+        {
+          "id": "bollinger_breakout",
+          "name": "Bollinger Breakout",
+          "family": "volatility",
+          "tagline": "Trade the move that leaves the band.",
+          "description": "Bollinger bands sit a number of standard deviations either side of a moving average, so they widen when the market is violent and pinch when it is quiet. Buying a close above the upper band is a bet that a move big enough to escape the band keeps going.",
+          "weakness": "Buys the top of every spike that immediately reverses.",
+          "params": [
+            {
+              "key": "period",
+              "label": "Period",
+              "help": "Bars in the middle average and the deviation.",
+              "min": 5,
+              "max": 200,
+              "step": 1,
+              "default": 20,
+              "unit": "bars"
+            },
+            {
+              "key": "deviations",
+              "label": "Band width",
+              "help": "Standard deviations from the middle band.",
+              "min": 0.5,
+              "max": 5,
+              "step": 0.1,
+              "default": 2,
+              "unit": "σ"
+            }
+          ]
+        },
+        {
+          "id": "donchian_breakout",
+          "name": "Donchian Channel",
+          "family": "trend",
+          "tagline": "Buy a new high, sell a new low. The turtle rule.",
+          "description": "Go long when price closes above the highest high of the last N bars, and flat when it closes below the lowest low of the last M. It is the rule the original Turtle traders were taught, and it still works for the same reason: it never misses a large trend.",
+          "weakness": "Every entry is at a local high by construction, so the average trade starts underwater.",
+          "params": [
+            {
+              "key": "entry",
+              "label": "Entry lookback",
+              "help": "Bars in the breakout high that triggers a buy.",
+              "min": 3,
+              "max": 300,
+              "step": 1,
+              "default": 20,
+              "unit": "bars"
+            },
+            {
+              "key": "exit",
+              "label": "Exit lookback",
+              "help": "Bars in the breakdown low that triggers a sell.",
+              "min": 2,
+              "max": 300,
+              "step": 1,
+              "default": 10,
+              "unit": "bars"
+            }
+          ]
+        },
+        {
+          "id": "atr_trailing",
+          "name": "ATR Trailing Stop",
+          "family": "trend",
+          "tagline": "Ride the trend, exit on a volatility-scaled stop.",
+          "description": "Enter when price closes above its moving average, then trail a stop a multiple of Average True Range below the highest close since entry. The stop widens in violent markets and tightens in calm ones, so it is not shaken out by ordinary noise.",
+          "weakness": "A gap straight through the stop exits far below it. Crypto gaps.",
+          "params": [
+            {
+              "key": "trend",
+              "label": "Trend period",
+              "help": "Moving average that must be exceeded to enter.",
+              "min": 5,
+              "max": 300,
+              "step": 1,
+              "default": 50,
+              "unit": "bars"
+            },
+            {
+              "key": "atr",
+              "label": "ATR period",
+              "help": "Bars in the Average True Range.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 14,
+              "unit": "bars"
+            },
+            {
+              "key": "multiple",
+              "label": "Stop distance",
+              "help": "ATR multiples below the high-water close.",
+              "min": 0.5,
+              "max": 10,
+              "step": 0.1,
+              "default": 3,
+              "unit": "×"
+            }
+          ]
+        },
+        {
+          "id": "grid",
+          "name": "Grid",
+          "family": "mean_reversion",
+          "tagline": "Buy each step down, sell each step up.",
+          "description": "Slice the allocation into rungs and buy one every time price drops a set percentage, selling a rung back on the way up. It harvests chop, which is the one market condition every trend rule loses money in.",
+          "weakness": "A one-<redacted>.",
+          "params": [
+            {
+              "key": "rungs",
+              "label": "Rungs",
+              "help": "How many slices the allocation is cut into.",
+              "min": 2,
+              "max": 30,
+              "step": 1,
+              "default": 8
+            },
+            {
+              "key": "spacing",
+              "label": "Step size",
+              "help": "Percent move between one rung and the next.",
+              "min": 0.2,
+              "max": 20,
+              "step": 0.1,
+              "default": 2,
+              "unit": "%"
+            }
+          ]
+        },
+        {
+          "id": "dca",
+          "name": "Dollar Cost Average",
+          "family": "accumulation",
+          "tagline": "Buy a fixed slice every N bars, regardless of price.",
+          "description": "Accumulation rather than trading: spend an equal slice of the allocation on a fixed schedule until it is gone, then hold. It makes no forecast at all, which is precisely why it is hard to beat over long horizons.",
+          "weakness": "Has no exit. Whatever the market does at the end is your result.",
+          "params": [
+            {
+              "key": "every",
+              "label": "Interval",
+              "help": "Bars between one purchase and the next.",
+              "min": 1,
+              "max": 500,
+              "step": 1,
+              "default": 7,
+              "unit": "bars"
+            },
+            {
+              "key": "slices",
+              "label": "Slices",
+              "help": "How many purchases the allocation is split across.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 12
+            }
+          ]
+        }
+      ],
+      "pairs": [
+        {
+          "symbol": "BTC-USD",
+          "base": "BTC",
+          "quote": "USD",
+          "name": "Bitcoin",
+          "binance": "BTCUSDT",
+          "kraken": "XBTUSD",
+          "live": true,
+          "precision": 2
+        },
+        {
+          "symbol": "ETH-USD",
+          "base": "ETH",
+          "quote": "USD",
+          "name": "Ethereum",
+          "binance": "ETHUSDT",
+          "kraken": "ETHUSD",
+          "live": true,
+          "precision": 2
+        },
+        {
+          "symbol": "SOL-USD",
+          "base": "SOL",
+          "quote": "USD",
+          "name": "Solana",
+          "binance": "SOLUSDT",
+          "kraken": "SOLUSD",
+          "live": true,
+          "precision": 3
+        },
+        {
+          "symbol": "XRP-USD",
+          "base": "XRP",
+          "quote": "USD",
+          "name": "XRP",
+          "binance": "XRPUSDT",
+          "kraken": "XRPUSD",
+          "live": true,
+          "precision": 5
+        },
+        {
+          "symbol": "BNB-USD",
+          "base": "BNB",
+          "quote": "USD",
+          "name": "BNB",
+          "binance": "BNBUSDT",
+          "kraken": "",
+          "live": false,
+          "precision": 2
+        },
+        {
+          "symbol": "ADA-USD",
+          "base": "ADA",
+          "quote": "USD",
+          "name": "Cardano",
+          "binance": "ADAUSDT",
+          "kraken": "ADAUSD",
+          "live": false,
+          "precision": 5
+        },
+        {
+          "symbol": "DOGE-USD",
+          "base": "DOGE",
+          "quote": "USD",
+          "name": "Dogecoin",
+          "binance": "DOGEUSDT",
+          "kraken": "XDGUSD",
+          "live": false,
+          "precision": 6
+        },
+        {
+          "symbol": "LINK-USD",
+          "base": "LINK",
+          "quote": "USD",
+          "name": "Chainlink",
+          "binance": "LINKUSDT",
+          "kraken": "LINKUSD",
+          "live": false,
+          "precision": 3
+        },
+        {
+          "symbol": "AVAX-USD",
+          "base": "AVAX",
+          "quote": "USD",
+          "name": "Avalanche",
+          "binance": "AVAXUSDT",
+          "kraken": "AVAXUSD",
+          "live": false,
+          "precision": 3
+        },
+        {
+          "symbol": "LTC-USD",
+          "base": "LTC",
+          "quote": "USD",
+          "name": "Litecoin",
+          "binance": "LTCUSDT",
+          "kraken": "LTCUSD",
+          "live": false,
+          "precision": 2
+        }
+      ],
+      "presets": [
+        {
+          "id": "btc-golden-cross",
+          "name": "Bitcoin Golden Cross",
+          "blurb": "The classic 50/200 daily crossover on the most liquid pair there is. Trades a handful of times a year and sits out most drawdowns.",
+          "strategyId": "sma_cross",
+          "pair": "BTC-USD",
+          "timeframe": "1d",
+          "risk": "steady",
+          "params": {
+            "fast": 50,
+            "slow": 200
+          }
+        },
+        {
+          "id": "btc-turtle",
+          "name": "Bitcoin Turtle",
+          "blurb": "Twenty-day breakout, ten-day breakdown, on the daily. The rule the Turtles were taught, unchanged.",
+          "strategyId": "donchian_breakout",
+          "pair": "BTC-USD",
+          "timeframe": "1d",
+          "risk": "balanced",
+          "params": {
+            "entry": 20,
+            "exit": 10
+          }
+        },
+        {
+          "id": "eth-momentum",
+          "name": "Ether Momentum",
+          "blurb": "Standard 12/26/9 MACD on four-hour candles. Catches the middle of a move and gives back the ends.",
+          "strategyId": "macd_trend",
+          "pair": "ETH-USD",
+          "timeframe": "4h",
+          "risk": "balanced",
+          "params": {
+            "fast": 12,
+            "slow": 26,
+            "signal": 9
+          }
+        },
+        {
+          "id": "eth-trail",
+          "name": "Ether Trend Rider",
+          "blurb": "Enter above the 50-bar average, trail three ATRs behind the high. Holds through noise, exits on the real turn.",
+          "strategyId": "atr_trailing",
+          "pair": "ETH-USD",
+          "timeframe": "4h",
+          "risk": "balanced",
+          "params": {
+            "trend": 50,
+            "atr": 14,
+            "multiple": 3
+          }
+        },
+        {
+          "id": "sol-dip-buyer",
+          "name": "Solana Dip Buyer",
+          "blurb": "Hourly RSI reversion on a famously volatile pair. Many small wins, and the occasional long, ugly hold.",
+          "strategyId": "rsi_reversion",
+          "pair": "SOL-USD",
+          "timeframe": "1h",
+          "risk": "aggressive",
+          "params": {
+            "period": 14,
+            "oversold": 28,
+            "overbought": 68
+          }
+        },
+        {
+          "id": "sol-volatility",
+          "name": "Solana Breakout",
+          "blurb": "Two-sigma Bollinger breakout on the hour. Built for the pair that actually moves enough to leave the band.",
+          "strategyId": "bollinger_breakout",
+          "pair": "SOL-USD",
+          "timeframe": "1h",
+          "risk": "aggressive",
+          "params": {
+            "period": 20,
+            "deviations": 2
+          }
+        },
+        {
+          "id": "xrp-grid",
+          "name": "XRP Range Grid",
+          "blurb": "Eight rungs, two percent apart, on fifteen-minute candles. Harvests the chop that kills trend rules.",
+          "strategyId": "grid",
+          "pair": "XRP-USD",
+          "timeframe": "15m",
+          "risk": "aggressive",
+          "params": {
+            "rungs": 8,
+            "spacing": 2
+          }
+        },
+        {
+          "id": "btc-weekly-stack",
+          "name": "Bitcoin Weekly Stack",
+          "blurb": "A slice every seven days across twelve weeks, then hold. No forecast, no timing, no exit.",
+          "strategyId": "dca",
+          "pair": "BTC-USD",
+          "timeframe": "1d",
+          "risk": "steady",
+          "params": {
+            "every": 7,
+            "slices": 12
+          }
+        },
+        {
+          "id": "eth-fast-cross",
+          "name": "Ether Fast Cross",
+          "blurb": "A 12/26 EMA cross on the hour. Trades often — the fee model matters more here than the rule does.",
+          "strategyId": "ema_cross",
+          "pair": "ETH-USD",
+          "timeframe": "1h",
+          "risk": "aggressive",
+          "params": {
+            "fast": 12,
+            "slow": 26
+          }
+        },
+        {
+          "id": "btc-benchmark",
+          "name": "Bitcoin Benchmark",
+          "blurb": "Buy and hold, for comparison. Run this alongside anything else you are considering.",
+          "strategyId": "buy_hold",
+          "pair": "BTC-USD",
+          "timeframe": "1d",
+          "risk": "steady",
+          "params": {}
+        }
+      ],
+      "timeframes": [
+        "5m",
+        "15m",
+        "1h",
+        "4h",
+        "1d"
+      ],
+      "execution": {
+        "feeBps": 10,
+        "slippageBps": 5
+      },
+      "pricing": {
+        "performanceFeeBps": 1500,
+        "minFeeShards": 5,
+        "shardsPerUsd": 100,
+        "limits": {
+          "backtestsPerDay": 200,
+          "paperBots": 10,
+          "liveBots": 5,
+          "minLiveAllocation": 1000
+        },
+        "liveEnabled": false
+      }
+    }
+  },
+  "timing": "instant"
+}

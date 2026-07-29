@@ -1,0 +1,26 @@
+{
+  "formatVersion": 1,
+  "scenario": "game",
+  "step": "read the cosmetic catalogue",
+  "seq": 2,
+  "target": "game",
+  "request": {
+    "method": "GET",
+    "path": "/cosmetics",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "equipped": {},
+      "unlocked": []
+    }
+  },
+  "timing": "instant"
+}

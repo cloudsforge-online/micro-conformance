@@ -1,0 +1,23 @@
+{
+  "formatVersion": 1,
+  "scenario": "game",
+  "step": "list the worlds",
+  "seq": 1,
+  "target": "game",
+  "request": {
+    "method": "GET",
+    "path": "/worlds",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": []
+  },
+  "timing": "instant"
+}
