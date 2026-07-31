@@ -1,0 +1,35 @@
+name: CI
+
+# The conformance harness: records interactions against a running estate and compares them to a
+# committed baseline. In CI there is no estate to dial, so the job runs what the scripts support
+# without one — the typecheck and the suite (the comparator, normaliser, redactor and corpus
+# tests are all pure). The `conformance` script itself needs live services and stays a local tool.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  hygiene:
+    uses: cloudsforge-online/micro-org/.github/workflows/secret-hygiene.yml@main
+    with:
+      require-dockerignore: false
+    permissions:
+      contents: read
