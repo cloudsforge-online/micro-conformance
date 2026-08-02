@@ -191,7 +191,71 @@ right side of that trade.
 
 ---
 
-## 6. Layout
+## 6. The ledger account-type sweep
+
+A second, unrelated check that lives here for one reason: **it is the only repository in the estate
+whose job is to compare services against each other.** Everything else is a service, and a service
+can only ever check itself.
+
+```bash
+node --import tsx src/cli.ts ledger-accounts --estate ..
+```
+
+### What it checks
+
+`micro-ledger` keys an account on `(subject, asset_code, purpose)` and **nothing else** — not the
+type. Every service picks that type independently, in its own source, when it first posts. When two
+disagree, `ensureAccount` throws `AccountConflictError` (`ledger/src/accounts.ts:125`) and whichever
+service posted **second** has **every** entry refused, in production, for as long as the
+disagreement stands.
+
+Nothing in CI can see it. Each service tests against its own fake ledger, so no suite anywhere puts
+two real services against one real ledger. Three instances have been found — `micro-worlds`,
+`micro-emberkin` and `micro-settlement` all debited `(platform, <asset>, fees)` as `expense` while
+six other services credit that key as `revenue` — and all three were found by a human reading a
+second repository for an unrelated reason. That is not a search.
+
+The sweep parses every sibling repository's TypeScript with the compiler API (not a regex: the three
+literals were spelled three different ways, and a pattern tuned to any one of them misses the
+others) and runs three passes:
+
+| Pass | Catches | Needs a resolved subject? |
+| --- | --- | --- |
+| `DISAGREEMENT` | Two services claim one key with two types | Yes |
+| `UNCANONICAL` | One service claims a type the chart contradicts — **before** a second service exists to disagree | Yes |
+| `IMPLAUSIBLE` | A `(purpose, type)` pair the chart has no row for at any subject | No |
+
+`CANONICAL_ACCOUNTS` is the chart, and every row carries the source that decided it. The row that
+settled both fixes is `micro-ledger`'s own: "`platform` is revenue under `fees`, equity under
+`treasury` and expense under `payout_due`" (`ledger/src/accounts.ts:16-17`).
+
+**Exit 1 on any finding.** `src/ledgeraccounts.test.ts` reintroduces each defect and asserts the
+sweep goes red on it — the analyser cases run with no estate checked out, so they run in CI.
+
+### What it cannot see
+
+- **A key not written as an object literal in TypeScript.** Eleven of the estate's account literals
+  hold their `subject` in a function parameter or an argument property, and no source-level reader
+  can resolve those. They are **named and counted**, never dropped; `BASELINE_UNRESOLVED` is
+  today's count and the sweep fails if it grows, so the blind spot cannot widen in silence.
+- **A repository that is not checked out.** The sweep reports which repositories it read and refuses
+  to certify fewer than `MIN_SERVICES`. Otherwise an empty directory would print "no disagreements".
+- **The ledger's own rows.** It compares source against source. An account already written to the
+  database with the wrong type is reconciliation's problem, not this one's.
+- **Whether the chart is right.** `CANONICAL_ACCOUNTS` is a claim, sourced but not proven.
+
+### It is not yet automatic, and that is the honest state
+
+**No CI job in the estate has all the services checked out at once.** This repository's workflow
+checks out only this repository; the shared `service-ci` workflow checks out `micro-runtime` and
+`micro-contracts` and nothing else. So the estate half of this check is a local gate a human runs,
+and it is built to fail loudly on a partial checkout precisely so "it passed" cannot come from an
+empty directory. Making it automatic needs a job in `micro-org` that checks out every service —
+described in this repository's issue tracker rather than smuggled in here.
+
+---
+
+## 7. Layout
 
 ```
 src/
@@ -201,7 +265,8 @@ src/
   redact.ts        redaction at capture, and the refusal
   corpus.ts        read and write, and the refusal's last chance
   scenario.ts      defineScenario, the context, the driver
-  cli.ts           record / compare / report
+  cli.ts           record / compare / report / ledger-accounts
+  ledgeraccounts.ts the estate-wide account-type sweep and its chart
   scenarios/       one file per surface
 ```
 

@@ -22,6 +22,8 @@ import { compareCorpora } from './compare.ts'
 import type { ComparisonReport, Difference } from './compare.ts'
 import { loadCorpus } from './corpus.ts'
 import { baseNames, loadSecrets } from './env.ts'
+import { formatReconciliation, reconcileAccountClaims, sweepEstate } from './ledgeraccounts.ts'
+import { BASELINE_UNRESOLVED, MIN_SERVICES } from './ledgeraccounts.ts'
 import { record } from './record.ts'
 import { ALL_SCENARIOS } from './scenarios/index.ts'
 
@@ -32,6 +34,17 @@ interface Flags {
   readonly only: readonly string[]
   readonly json: string | undefined
   readonly verbose: boolean
+  /** For `ledger-accounts`: the directory holding the sibling checkouts. */
+  readonly estate: string
+  /**
+   * How many account literals the sweep is allowed to be unable to resolve before it fails.
+   *
+   * Not a nuisance knob. A sweep whose blind spot can grow without anything turning red stops
+   * measuring the estate and starts measuring itself, which is the failure mode this repository
+   * has already shipped once. The default is today's count, so the FIRST new unresolvable spelling
+   * fails and has to be looked at.
+   */
+  readonly maxUnresolved: number
 }
 
 function parseFlags(argv: readonly string[]): Flags {
@@ -51,6 +64,8 @@ function parseFlags(argv: readonly string[]): Flags {
     only: (get('only') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     json: get('json'),
     verbose: argv.includes('--verbose'),
+    estate: get('estate') ?? '..',
+    maxUnresolved: Number(get('max-unresolved') ?? String(BASELINE_UNRESOLVED)),
   }
 }
 
@@ -67,6 +82,13 @@ conformance — the CloudsForge characterisation harness
 
   report   [--corpus corpus/]
            Summarise a recorded corpus: what it covers, what skipped, and why.
+
+  ledger-accounts [--estate ..] [--max-unresolved N] [--verbose]
+           Read every sibling repository's TypeScript and reconcile the ledger
+           account TYPE each service claims per account key. Exits 1 when two
+           services claim one key two ways, when a claim contradicts the chart,
+           or when more literals are unresolvable than the budget allows.
+           Needs the sibling checkouts on disk; it dials nothing.
 
 Base environments: ${baseNames().join(', ')}
 Scenarios:         ${ALL_SCENARIOS.map((s) => s.name).join(', ')}
@@ -92,6 +114,8 @@ async function main(): Promise<number> {
       return await doCompare(flags, secrets)
     case 'report':
       return doReport(flags)
+    case 'ledger-accounts':
+      return doLedgerAccounts(flags)
     default:
       console.error(`unknown command '${command}'\n\n${USAGE}`)
       return 1
@@ -205,6 +229,37 @@ function doReport(flags: Flags): number {
   console.log(`\nnormalisation in force: ${manifest.normalisationRules.join(', ')}`)
 
   return manifest.totals.failed > 0 ? 1 : 0
+}
+
+/**
+ * The estate-wide ledger account-type sweep.
+ *
+ * It reads source and dials nothing, so it is safe anywhere the checkouts are — but it needs the
+ * sibling repositories, and this repository's CI checks out only itself. That is stated in the
+ * output rather than papered over: a run that swept three repositories and printed "no
+ * disagreements" would be true and worthless, so the count of repositories read is printed FIRST
+ * and `--verbose` names them.
+ */
+function doLedgerAccounts(flags: Flags): number {
+  const sweep = sweepEstate({ estateDir: flags.estate })
+  const result = reconcileAccountClaims(sweep.claims, { maxUnresolved: flags.maxUnresolved })
+  console.log(formatReconciliation(result, sweep))
+  console.log('')
+  if (sweep.services.length < MIN_SERVICES) {
+    console.error(
+      `only ${sweep.services.length} repositories under ${flags.estate} — expected at least ` +
+        `${MIN_SERVICES}. A sweep of a partial checkout cannot certify the estate.`,
+    )
+    return 1
+  }
+  if (result.unresolved.length > flags.maxUnresolved) {
+    console.error(
+      `${result.unresolved.length} unresolvable account literals, budget ${flags.maxUnresolved}. ` +
+        'Each one is an account whose key this cannot read; raise the budget only with a reason.',
+    )
+  }
+  console.log(result.ok ? 'OK — the estate agrees on every account type it states' : 'FAILED')
+  return result.ok ? 0 : 1
 }
 
 main().then(
