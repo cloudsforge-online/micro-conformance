@@ -315,7 +315,7 @@ export interface ComparisonReport {
   readonly breaking: boolean
 }
 
-const key = (i: Interaction): string => `${i.scenario} ${i.seq} ${i.step}`
+const key = (i: Interaction): string => `${i.scenario}\u0000${i.seq}\u0000${i.step}`
 
 /**
  * Match interactions by scenario, step label and occurrence — **not** by sequence number.
