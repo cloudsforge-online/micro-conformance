@@ -244,18 +244,130 @@ sweep goes red on it — the analyser cases run with no estate checked out, so t
   database with the wrong type is reconciliation's problem, not this one's.
 - **Whether the chart is right.** `CANONICAL_ACCOUNTS` is a claim, sourced but not proven.
 
-### It is not yet automatic, and that is the honest state
+### It runs in `micro-org`'s `estate-ci.yml`
 
-**No CI job in the estate has all the services checked out at once.** This repository's workflow
-checks out only this repository; the shared `service-ci` workflow checks out `micro-runtime` and
-`micro-contracts` and nothing else. So the estate half of this check is a local gate a human runs,
-and it is built to fail loudly on a partial checkout precisely so "it passed" cannot come from an
-empty directory. Making it automatic needs a job in `micro-org` that checks out every service —
-described in this repository's issue tracker rather than smuggled in here.
+The note that used to sit here said the estate half was "a local gate a human runs, because no CI
+job has all the services checked out". That is no longer true: `micro-org/.github/workflows/estate-ci.yml`
+clones every `micro-*` repository — derived from the GitHub API, never written down — and runs this
+sweep against the lot, nightly and on demand, with a canary before the verdict.
 
 ---
 
-## 7. Layout
+## 7. The estate-wide response-body scan
+
+The third estate-wide check, and the same argument for living here: **no route in any service may
+return private key material**, which is a fact about 498 routes in 29 servers and about no single
+repository.
+
+```bash
+node --import tsx src/cli.ts body-scan --estate ..
+node --import tsx src/cli.ts body-scan-canary --estate ..   # prove it can still go red
+```
+
+### Why it exists
+
+`docs/ecosystem/17-definition-of-done.md` §5 item 4 requires the property be asserted "by a
+response-body scan across the entire route surface, **not by inspection**". Exactly one service of
+twenty-four implements it — `custody/src/bodyscan.test.ts`, which mints a key in every family, reads
+the plaintext out of the vault, drives custody's routes and asserts no body contains any of it. It
+is the right instrument and it is the model for this one.
+
+The only estate-wide key check that existed before this was
+`org/.github/workflows/secret-hygiene.yml:73-83`, which greps repository **files** for PEM blocks. A
+grep over files cannot see what a running route returns; the two do not overlap at all.
+
+### Static, and what that costs
+
+A dynamic scan works by knowing the forbidden strings, which means a fixture holding **real** key
+material per service. Custody can produce one because it owns the vault. `micro-market` cannot —
+there is no private key in micro-market to compare a body against. Twenty-four Postgres schemas and
+a chain adapter per family would turn the DoD item into a check nobody runs.
+
+So this reads source, and it proves something both weaker and wider: no route's response expression
+is reachable from a value this analyser can identify as key material, over **every** route, under
+**every** input, including the error paths a dynamic scan only reaches if somebody wrote the failing
+request. **It does not prove what custody's proves.** Custody's stays.
+
+### Four passes
+
+| Pass | Catches | Example |
+| --- | --- | --- |
+| `name` | A field called what key material is called | `body: { privateKey: k }` |
+| `provenance` | A value that came out of the vault, under any name | `body: { note: await deps.vault.read(slot) }` |
+| `shape` | A literal that **is** a key, whatever it is called | a PEM block, an `xprv`, a WIF |
+| `row` | A whole database row from a table with a secret column | `select *` reaching a body |
+
+The vocabulary is sourced to custody's own statement of the boundary
+(`custody/src/exports.ts:440-453`), which omits from its export event the material, the reveal token
+**and its SHA-256**, the vault slot id, the derivation path and the keystore passphrase. Session
+tokens, password hashes, public keys and `salt`/`iv`/`nonce` are deliberately **not** in it: they
+are not private key material, and a vocabulary that included them would fire on nearly every
+authenticating route in the estate on its first run.
+
+`ACKNOWLEDGED` names the routes that legitimately return something in the vocabulary — all three
+are custody's export ceremony — each with a reason and a citation. It is a **ratchet, not an
+exemption list**: an acknowledgement that matches nothing in the checkout is **red**, so a deleted
+route cannot leave a standing permission behind it, and a scan that quietly stopped reading a route
+does not look like a clean estate.
+
+### What it cannot see
+
+- **A fourth route spelling.** Three are read (`{ method, path, handle }`, `define(…)`, `route(…)`,
+  and the helper name is not hard-coded). A `server.ts` that declares a route table and yields
+  **zero** routes is **fatal**, never silently zero.
+- **A value it cannot open.** Every one is named, classified by *why* (`dep-call`, `package-call`,
+  `derived`, `unresolved`, `depth-limit`) and printed. `BASELINE_BLIND_ROUTES` ratchets the part that
+  matters: today **37 of the 113 routes** in the four services that hold key material (`custody`,
+  `identity`, `devplatform`, `notify`) have a response this cannot fully account for. Every one is
+  listed by `path:line` on every run.
+- **Aliasing and mutation.** `const out = {}; out.key = secret; return { body: out }` is not modelled.
+  Nothing in the estate builds a body that way today; it is the most likely way a real leak would
+  slip past.
+- **Runtime provenance, headers not written as a literal, and `main` only** — like every other
+  estate check.
+
+### The finding it produced
+
+`custody/src/bodyscan.test.ts:15-17` says its routes are "enumerat[ed] from the server's own table
+rather than by hand", and that a route it cannot drive "fails the assertion that the two lists
+agree". It does not do this: `routeSamples()` (bodyscan.test.ts:187) is a hand-written array, the
+file never references `buildRoutes`, and there is no such assertion. Two of custody's 21 routes are
+driven by neither the scan nor the ceremony test — `POST /v1/exports/:id/cancel` and
+`POST /v1/exports/:id/challenge`. The second returns the reveal token
+(`custody/src/server.ts:549`), which custody itself calls "the one secret in the estate that yields
+a private key" (`exports.ts:447`).
+
+Not a criticism of a good test — the reason a claim about a route surface has to be *derived* from
+the route surface.
+
+### What `micro-org` must add to `estate-ci.yml`
+
+Two steps, after `Install the checker`, both `if: always()` like the three already there:
+
+```yaml
+      - name: The canary — the body scan can still go red
+        if: always()
+        working-directory: estate/conformance
+        run: node --import tsx src/cli.ts body-scan-canary --estate ..
+
+      - name: No route in the estate can return private key material
+        if: always()
+        working-directory: estate/conformance
+        run: node --import tsx src/cli.ts body-scan --estate ..
+```
+
+The canary is a **subcommand, not thirty lines of bash in the workflow**, and that is deliberate:
+it asserts a property of the checker, so it has to change when the checker changes, and a copy
+living in another repository would not. It plants a route returning a private key into the
+`micro-wallet` checkout, asserts the sweep goes red **and names the injected file, route and
+field**, removes it, and asserts the estate is green again — because a red that survives the cleanup
+was never the canary's red. It has been proven to fail in both directions: with `privatekey` removed
+from the vocabulary it reports "stayed GREEN … it is measuring nothing", and with the helper-call
+route spelling broken it reports "went red but never named the injected FILE".
+
+---
+
+## 8. Layout
 
 ```
 src/
@@ -265,8 +377,9 @@ src/
   redact.ts        redaction at capture, and the refusal
   corpus.ts        read and write, and the refusal's last chance
   scenario.ts      defineScenario, the context, the driver
-  cli.ts           record / compare / report / ledger-accounts
+  cli.ts           record / compare / report / ledger-accounts / body-scan
   ledgeraccounts.ts the estate-wide account-type sweep and its chart
+  bodyscan.ts      the estate-wide response-body scan, its vocabulary and its blind spot
   scenarios/       one file per surface
 ```
 

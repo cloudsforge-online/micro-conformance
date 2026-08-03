@@ -16,8 +16,8 @@
  * corpus with a hole in it that reports success is worse than no corpus.
  */
 
-import { writeFileSync } from 'node:fs'
-import { relative } from 'node:path'
+import { existsSync, rmSync, writeFileSync } from 'node:fs'
+import { join, relative, resolve as resolvePath } from 'node:path'
 import {
   BASELINE_BLIND_ROUTES,
   MIN_ROUTES,
@@ -114,6 +114,12 @@ conformance — the CloudsForge characterisation harness
            route table cannot be read, or when more body reaches are unresolvable
            than the budget allows. Source only; it dials nothing and boots nothing.
 
+  body-scan-canary [--estate ..]
+           Inject a route that returns a private key into the checked-out estate,
+           assert body-scan goes red AND names the injected file, route and field,
+           remove it, and assert the estate is green again. Exit-code grading alone
+           would accept a red produced by a broken checkout.
+
 Base environments: ${baseNames().join(', ')}
 Scenarios:         ${ALL_SCENARIOS.map((s) => s.name).join(', ')}
 
@@ -142,6 +148,8 @@ async function main(): Promise<number> {
       return doLedgerAccounts(flags)
     case 'body-scan':
       return doBodyScan(flags)
+    case 'body-scan-canary':
+      return doBodyScanCanary(flags)
     default:
       console.error(`unknown command '${command}'\n\n${USAGE}`)
       return 1
@@ -326,6 +334,106 @@ function doBodyScan(flags: Flags): number {
   console.log(report.ok && !refused ? 'OK — no route in the estate can return key material this scan can identify' : 'FAILED')
   return report.ok && !refused ? 0 : 1
 }
+
+/* ------------------------------------------------------------------ the canary */
+
+/**
+ * THE PROOF THAT `body-scan` CAN STILL GO RED — planted, graded and removed here rather than in a
+ * workflow.
+ *
+ * `estate-ci.yml` already carries a canary per invariant, and every one of them is thirty lines of
+ * bash inside the workflow. That is the wrong home for this one and the reason is not tidiness: the
+ * canary asserts a property of the CHECKER, so it has to change when the checker changes, and a
+ * copy living in another repository owned by another agent will not. Here, `pnpm test` runs the
+ * analyser's own suite and this command re-proves it against the real estate, and both move
+ * together. micro-org's step becomes one line.
+ *
+ * IT GRADES THE OUTPUT, NOT THE EXIT CODE. A broken checkout, an unresolvable import and a missing
+ * subcommand all exit non-zero, so exit-code grading accepts every way this check can quietly stop
+ * measuring the estate. This asserts the sweep named the injected FILE, the injected ROUTE and the
+ * injected FIELD — and then asserts the estate is GREEN again once the injection is removed, because
+ * a red that survives the cleanup was never the canary's red.
+ *
+ * The injection goes into micro-wallet on purpose: it holds no key material, has no vault, and has
+ * never had a body scan of its own, so it is the service where a leaking route would be least
+ * likely to be noticed by anything else.
+ */
+function doBodyScanCanary(flags: Flags): number {
+  const target = resolvePath(flags.estate, 'wallet', 'src')
+  if (!existsSync(target)) {
+    console.error(`no micro-wallet checkout at ${target}, so the canary cannot be planted`)
+    console.error('A canary that cannot be planted must FAIL, never be skipped.')
+    return 1
+  }
+  const canary = join(target, '__bodyscan_canary.ts')
+  const grade = (ok: boolean, why: string): void => {
+    if (!ok) throw new Error(why)
+  }
+
+  try {
+    writeFileSync(canary, CANARY_SOURCE)
+    grade(existsSync(canary), 'the canary file was not written — a canary that grades an unchanged tree grades nothing')
+
+    const scan = scanEstate({ estateDir: flags.estate })
+    const report = reconcileBodyScan(scan, { maxBlindRoutes: flags.maxBlindRoutes })
+    const text = formatBodyScan(report, scan)
+
+    grade(!report.ok, 'the sweep stayed GREEN with a route returning a private key injected — it is measuring nothing')
+    grade(text.includes('__bodyscan_canary.ts'), 'the sweep went red but never named the injected FILE — a red for another reason')
+    grade(text.includes('/v1/wallets/:id/export'), 'the sweep named the file but not the injected ROUTE')
+    grade(/privateKey/.test(text), 'the sweep named the route but not WHAT it found in it')
+
+    console.log('ok: the sweep went red and named the injected file, route and field')
+    for (const finding of report.violations) {
+      console.log(`    ${finding.severity}/${finding.pass}  ${finding.method} ${finding.path}  ${finding.service}/${finding.file}:${finding.line}`)
+    }
+  } catch (err) {
+    rmSync(canary, { force: true })
+    console.error(`CANARY FAILED: ${err instanceof Error ? err.message : String(err)}`)
+    return 1
+  }
+
+  rmSync(canary, { force: true })
+  if (existsSync(canary)) {
+    console.error('CANARY FAILED: the canary survived, so the real sweep would judge a tree this command broke')
+    return 1
+  }
+
+  // And green again. Without this the red above proves only that SOMETHING is wrong.
+  const after = scanEstate({ estateDir: flags.estate })
+  const afterReport = reconcileBodyScan(after, { maxBlindRoutes: flags.maxBlindRoutes })
+  if (!afterReport.ok) {
+    console.error('CANARY FAILED: the sweep is still red with the injection removed, so the red above was not the canary')
+    console.error(formatBodyScan(afterReport, after))
+    return 1
+  }
+  console.log('ok: green again once the injection was removed — the red belonged to the canary')
+  return 0
+}
+
+/**
+ * A route in micro-wallet returning the plaintext a custody export produces.
+ *
+ * Written in micro-wallet's own route spelling (`route('GET', …)`), not custody's, so the canary
+ * also proves the extractor still reads that spelling — a fourth-spelling regression would
+ * otherwise show up as "the sweep did not name the injected file" and be indistinguishable from a
+ * broken checkout.
+ */
+const CANARY_SOURCE = `// Written by \`conformance body-scan-canary\` and deleted a few lines later. If the sweep does not
+// see this, the sweep is not seeing the estate either.
+interface Route { readonly method: string; readonly path: string; readonly handle: unknown }
+declare const deps: { custody: { reveal(id: string): Promise<string> } }
+declare function route(method: string, path: string, handle: unknown): Route
+
+export function buildCanaryRoutes(): Route[] {
+  return [
+    route('GET', '/v1/wallets/:id/export', async (ctx: { params: { id: string } }) => ({
+      status: 200,
+      body: { address: ctx.params.id, privateKey: await deps.custody.reveal(ctx.params.id) },
+    })),
+  ]
+}
+`
 
 main().then(
   (code) => process.exit(code),

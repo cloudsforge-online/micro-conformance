@@ -17,6 +17,24 @@
  * FILES for PEM blocks. A grep over files cannot see what a running route returns; the two checks
  * do not overlap at all.
  *
+ * AND CUSTODY'S SCAN IS NARROWER THAN ITS OWN DOCSTRING SAYS, which is the sharpest argument for
+ * this file existing. `custody/src/bodyscan.test.ts:15-17` states:
+ *
+ *   > Enumerating the routes from the server's own table rather than by hand is deliberate: a route
+ *   > added later is a route this test drives automatically, and one it cannot drive fails the
+ *   > assertion that the two lists agree.
+ *
+ * It does not do this. `routeSamples()` (bodyscan.test.ts:187) is a hand-written array; the file
+ * never references `buildRoutes`, and there is no assertion that the two lists agree. Of the 21
+ * routes in `custody/src/server.ts`, two are driven by neither the scan nor the ceremony test —
+ * `POST /v1/exports/:id/cancel` and `POST /v1/exports/:id/challenge`. The second is the route that
+ * returns the reveal token (`custody/src/server.ts:549`), which custody itself calls "the one secret
+ * in the estate that yields a private key" (`exports.ts:447`).
+ *
+ * That is not a criticism of a good test; it is the reason a claim about a route surface has to be
+ * derived from the route surface. This module reads `buildRoutes` itself, so a route added tomorrow
+ * is judged tomorrow — including the two custody's own scan does not reach.
+ *
  * ════════════════════════════════════════════════════════════════════════════════════════════════
  * STATIC, AND WHAT THAT COSTS
  *
@@ -50,9 +68,21 @@
  *     at all — so a `server.ts` that declares a route table and yields ZERO routes is FATAL, never
  *     silently zero. Bare `createServer` handlers, proxies and front ends are outside the surface.
  *   * **Values this analyser cannot follow.** Anything reaching a response body through a function
- *     it cannot resolve — a package import, a dynamic dispatch, a value threaded through a
- *     parameter — is recorded as an OPAQUE reach: named, counted, budgeted, and never silently
- *     dropped. `MAX_OPAQUE` is what stops the blind spot growing while the check still says green.
+ *     it cannot resolve — an injected dependency, a package import, a local nothing binds — is
+ *     recorded as an OPAQUE reach: named, classified by WHY, printed, and never silently dropped.
+ *     `BASELINE_BLIND_ROUTES` is the ratchet on the part of that which matters: today 37 of the 113
+ *     routes in the four services that hold key material have a response this cannot fully account
+ *     for, and every one is printed by name on every run.
+ *   * **One level of field sensitivity, and no more.** `a.b.c` is followed as "the `c` of the `b`"
+ *     for one hop at a time, and `MAX_DEPTH` is 14. A body assembled through fifteen layers is a
+ *     `depth-limit` reach — counted, and a defect in this analyser rather than in the estate.
+ *   * **Aliasing and mutation.** `const out = {}; out.key = secret; return { body: out }` is a shape
+ *     this does not model: the walk reads what an expression IS, not what was assigned into it.
+ *     Nothing in the estate builds a body that way today, which is why it is a stated limit rather
+ *     than a feature — but it is the most likely way a real leak would slip past.
+ *   * **Anything a route's own SUITE could see and this cannot.** custody's dynamic scan knows the
+ *     actual bytes of an actual private key and asserts no actual response contains them. That is a
+ *     strictly different and stronger claim about custody's routes than anything here.
  *   * **Runtime provenance.** A handler returning a database row this analyser resolved to a table
  *     with no secret column is judged on the schema in `migrations.ts`. A column added by hand in
  *     production, a `jsonb` blob with a key inside it, or a row already written is invisible.
