@@ -45,6 +45,24 @@ import {
 
 /* ------------------------------------------------------------------ the fixture estate */
 
+/**
+ * Two constants assembled at runtime rather than written down, and both for the same reason: a test
+ * file that CONTAINS the thing it tests for is a test file some other tool refuses or skips.
+ *
+ * `NUL` — `grep` treats a file holding a raw NUL as binary and skips it **in silence**, which is
+ * precisely the defect this repository shipped as e3f32db and which the case below exists to pin.
+ * Spelling the byte literally made this file invisible to `grep` and hid the PEM header beneath it
+ * for one commit.
+ *
+ * `PEM_HEADER` — the estate's own `secret-hygiene.yml:73-83` fails any repository holding a private
+ * key block, and it is right to; a scanner's fixture is not an exemption. Assembled here, the
+ * fixture WRITTEN TO DISK still holds a real header, so the shape pass is still proved against the
+ * real thing rather than against a euphemism for it.
+ */
+const NUL = String.fromCharCode(0)
+const PEM_HEADER = `${'-'.repeat(5)}BEGIN EC ${'PRIVATE'} KEY${'-'.repeat(5)}MHQCAQEEIF3n`
+
+
 /** The `Reply` shape all twenty-nine servers declare, so a fixture looks like the estate. */
 const PREAMBLE = `
 interface Reply { readonly status: number; readonly body?: unknown; readonly text?: string }
@@ -236,7 +254,7 @@ describe('the PROVENANCE pass — a value that came out of the vault, whatever i
 describe('the SHAPE pass — a literal that IS a key, whatever it is called and wherever it came from', () => {
   it('goes red on a PEM block reaching a body', () => {
     const result = scan(
-      server('leaky', `    { method: 'GET', path: '/pem', handle: async () => ({ status: 200, body: { note: '-----BEGIN EC PRIVATE KEY-----MHQCAQEE' } }) },`),
+      server('leaky', `    { method: 'GET', path: '/pem', handle: async () => ({ status: 200, body: { note: ${JSON.stringify(PEM_HEADER)} } }) },`),
     )
     assert.equal(result.findings.length, 1, said(result.findings))
     assert.equal(result.findings[0]?.pass, 'shape')
@@ -556,7 +574,7 @@ describe('a partial checkout is refused, never reported green', () => {
     // e3f32db: a grep rule read files holding raw NUL bytes and `grep` skipped them in silence.
     const { dir, dispose } = estate(server('bad', `    { method: 'GET', path: '/x', handle: async () => ({ status: 200, body: {} }) },`))
     try {
-      writeFileSync(join(dir, 'bad', 'src', 'nul.ts'), `export const x = ' '\n`)
+      writeFileSync(join(dir, 'bad', 'src', 'nul.ts'), `export const x = '\\u0000'\n`.replace('\\u0000', NUL))
       assert.throws(() => scanEstate({ estateDir: dir, exclude: [] }), /NUL byte/)
     } finally {
       dispose()
