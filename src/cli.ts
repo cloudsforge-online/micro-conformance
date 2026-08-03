@@ -20,6 +20,7 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve as resolvePath } from 'node:path'
 import {
   BASELINE_BLIND_ROUTES,
+  BASELINE_BLIND_TO_EVERY_CHECK,
   MIN_ROUTES,
   MIN_SERVERS,
   formatBodyScan,
@@ -61,6 +62,14 @@ interface Flags {
    * without a single line of the check changing. The default is today's count.
    */
   readonly maxBlindRoutes: number
+  /**
+   * For `body-scan`: how many of those routes may additionally be driven by no dynamic scan at all.
+   *
+   * The stricter of the two, and the one that answers "how much of the estate's key-holding route
+   * surface is watched by nothing". See `BASELINE_BLIND_TO_EVERY_CHECK` for why it is a separate
+   * number rather than a discount on the one above.
+   */
+  readonly maxBlindToEveryCheck: number
 }
 
 function parseFlags(argv: readonly string[]): Flags {
@@ -83,6 +92,7 @@ function parseFlags(argv: readonly string[]): Flags {
     estate: get('estate') ?? '..',
     maxUnresolved: Number(get('max-unresolved') ?? String(BASELINE_UNRESOLVED)),
     maxBlindRoutes: Number(get('max-blind-routes') ?? String(BASELINE_BLIND_ROUTES)),
+    maxBlindToEveryCheck: Number(get('max-blind-to-every-check') ?? String(BASELINE_BLIND_TO_EVERY_CHECK)),
   }
 }
 
@@ -107,12 +117,14 @@ conformance — the CloudsForge characterisation harness
            or when more literals are unresolvable than the budget allows.
            Needs the sibling checkouts on disk; it dials nothing.
 
-  body-scan [--estate ..] [--max-blind-routes N] [--verbose]
+  body-scan [--estate ..] [--max-blind-routes N] [--max-blind-to-every-check N] [--verbose]
            Enumerate every route in every service and follow every value that
            reaches a response body. Exits 1 when a route can return private key
-           material, when an acknowledged exception no longer exists, when a
-           route table cannot be read, or when more body reaches are unresolvable
-           than the budget allows. Source only; it dials nothing and boots nothing.
+           material, when an acknowledged exception no longer exists or is driven
+           by no dynamic scan, when a service's own dynamic scan and this one
+           disagree about that service's routes, when a route table cannot be
+           read, or when either blind-route budget is exceeded. Source only; it
+           dials nothing and boots nothing.
 
   body-scan-canary [--estate ..]
            Inject a route that returns a private key into the checked-out estate,
@@ -305,7 +317,10 @@ function doLedgerAccounts(flags: Flags): number {
  */
 function doBodyScan(flags: Flags): number {
   const scan = scanEstate({ estateDir: flags.estate })
-  const report = reconcileBodyScan(scan, { maxBlindRoutes: flags.maxBlindRoutes })
+  const report = reconcileBodyScan(scan, {
+    maxBlindRoutes: flags.maxBlindRoutes,
+    maxBlindToEveryCheck: flags.maxBlindToEveryCheck,
+  })
   console.log(formatBodyScan(report, scan))
   console.log('')
 
@@ -329,6 +344,26 @@ function doBodyScan(flags: Flags): number {
       `${report.blindRoutes.length} routes in a key-holding service could not be fully read, budget ` +
         `${flags.maxBlindRoutes}. Each one is a response this scan cannot account for, in a service ` +
         'that has a private key to lose. Open the value, or raise the budget with a reason.',
+    )
+  }
+  if (report.blindToEveryCheck.length > flags.maxBlindToEveryCheck) {
+    console.error(
+      `${report.blindToEveryCheck.length} of those are driven by no dynamic body scan either, budget ` +
+        `${flags.maxBlindToEveryCheck}. Nothing in the estate accounts for what those routes return. ` +
+        'Drive them in their own service\'s suite; this budget is the one a dynamic test can lower.',
+    )
+  }
+  for (const coverage of report.coverageMismatches) {
+    console.error(
+      `${coverage.service}/${coverage.file} and this analyser do not agree on ${coverage.service}'s route ` +
+        'surface. One of the two stopped reading the other; fix whichever it is, never the list.',
+    )
+  }
+  for (const entry of report.unwitnessedAcknowledgements) {
+    console.error(
+      `${entry.service} ${entry.method} ${entry.path} is acknowledged to return '${entry.field}' and no ` +
+        'dynamic scan drives it. A permission to return key material on a route nothing exercises is ' +
+        'a claim with no witness — the exact thing that went stale here before.',
     )
   }
   console.log(report.ok && !refused ? 'OK — no route in the estate can return key material this scan can identify' : 'FAILED')
@@ -375,7 +410,10 @@ function doBodyScanCanary(flags: Flags): number {
     grade(existsSync(canary), 'the canary file was not written — a canary that grades an unchanged tree grades nothing')
 
     const scan = scanEstate({ estateDir: flags.estate })
-    const report = reconcileBodyScan(scan, { maxBlindRoutes: flags.maxBlindRoutes })
+    const report = reconcileBodyScan(scan, {
+      maxBlindRoutes: flags.maxBlindRoutes,
+      maxBlindToEveryCheck: flags.maxBlindToEveryCheck,
+    })
     const text = formatBodyScan(report, scan)
 
     grade(!report.ok, 'the sweep stayed GREEN with a route returning a private key injected — it is measuring nothing')
@@ -401,7 +439,10 @@ function doBodyScanCanary(flags: Flags): number {
 
   // And green again. Without this the red above proves only that SOMETHING is wrong.
   const after = scanEstate({ estateDir: flags.estate })
-  const afterReport = reconcileBodyScan(after, { maxBlindRoutes: flags.maxBlindRoutes })
+  const afterReport = reconcileBodyScan(after, {
+    maxBlindRoutes: flags.maxBlindRoutes,
+    maxBlindToEveryCheck: flags.maxBlindToEveryCheck,
+  })
   if (!afterReport.ok) {
     console.error('CANARY FAILED: the sweep is still red with the injection removed, so the red above was not the canary')
     console.error(formatBodyScan(afterReport, after))

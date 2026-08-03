@@ -29,6 +29,8 @@ import {
   ACKNOWLEDGED,
   ADJACENT,
   BASELINE_BLIND_ROUTES,
+  BASELINE_BLIND_TO_EVERY_CHECK,
+  DYNAMIC_SCANS,
   KEY_SHAPES,
   MATERIAL,
   MIN_ROUTES,
@@ -39,6 +41,7 @@ import {
   reconcileBodyScan,
   scanEstate,
   secretBearingTables,
+  type DynamicScanRef,
   type EstateScan,
   type Finding,
 } from './bodyscan.ts'
@@ -110,11 +113,18 @@ function estate(...services: Service[]): { dir: string; dispose: () => void } {
   return { dir, dispose: () => rmSync(dir, { recursive: true, force: true }) }
 }
 
-/** Scan a fixture estate. `exclude: []` because the fixture has no `conformance` to skip. */
+/**
+ * Scan a fixture estate. `exclude: []` because the fixture has no `conformance` to skip.
+ *
+ * `dynamicScans: []` because a fixture service called `custody` is not micro-custody and has no
+ * `src/bodyscan.test.ts`. The default (`DYNAMIC_SCANS`) would THROW on it — correctly, and that
+ * throw is proved on purpose further down rather than suppressed here. The cases that exercise the
+ * coverage reader build their own estate and pass their own refs.
+ */
 function scan(...services: Service[]): EstateScan {
   const { dir, dispose } = estate(...services)
   try {
-    return scanEstate({ estateDir: dir, exclude: [] })
+    return scanEstate({ estateDir: dir, exclude: [], dynamicScans: [] })
   } finally {
     dispose()
   }
@@ -548,6 +558,278 @@ describe('the acknowledgement list is a ratchet, not an exemption list', () => {
     )
     assert.equal(result.findings.length, 1, said(result.findings))
     assert.equal(result.findings[0]?.path, '/somewhere-else', 'the acknowledgement covered a route it does not name')
+  })
+})
+
+/* ------------------------------------------------------------------ the derived coverage claim */
+
+/**
+ * WHAT REPLACED A SENTENCE OF PROSE, AND WHY EVERY CASE HERE BREAKS SOMETHING.
+ *
+ * The `challenge` acknowledgement used to end with "custody's own dynamic scan does NOT cover this
+ * route". True when written, false from custody's `a633986`, and nothing here could tell the
+ * difference — a comment is not a check. It is now derived: the sample list is parsed out of the
+ * service's own suite on every run and reconciled against the routes this analyser extracted.
+ *
+ * A derived fact is only better than a written one if a BROKEN derivation is loud, and this estate
+ * has already shipped a parser that read exactly one registry entry because a draft contained
+ * `as const` inside a literal — and reported success. So the cases below are not "the reader works".
+ * They are: delete a sample and watch it named; add a sample for a route that does not exist and
+ * watch it named; break the parse three separate ways and watch it THROW rather than return a
+ * smaller number. A reader whose failure mode is a quietly smaller number would silently discount
+ * blind routes, which is the one thing this must never do.
+ */
+
+/** A `routeSamples()` in the shape custody writes one, so the fixture parses like the real file. */
+function dynamicScanFile(samples: readonly { method: string; route: string }[], fn = 'routeSamples'): string {
+  return `import assert from 'node:assert/strict'
+interface Sample { readonly method: string; readonly route: string; readonly body?: unknown }
+function ${fn}(): Sample[] {
+  return [
+${samples.map((s) => `    { method: '${s.method}', route: '${s.route}', body: { note: 'a nested literal that is not a sample' } },`).join('\n')}
+  ]
+}
+export const used = ${fn}
+`
+}
+
+const CUSTODY_REF: DynamicScanRef = {
+  service: 'custody',
+  file: 'src/bodyscan.test.ts',
+  samples: 'routeSamples',
+  declares: 'route',
+  because: 'the fixture stand-in for micro-custody\'s own SD-16 sweep, in the same shape',
+}
+
+/** A fixture custody: two routes, one of which is the acknowledged `challenge`. */
+function custodyFixture(samples: readonly { method: string; route: string }[]): Service {
+  return {
+    name: 'custody',
+    files: {
+      'migrations.ts': SECRET_TABLE,
+      'server.ts': `${PREAMBLE}
+function buildRoutes(): Route[] {
+  return [
+    { method: 'POST', path: '/v1/exports/:id/challenge', handle: async () => ({ status: 200, body: { revealToken: 'a-fixture-token' } }) },
+    { method: 'GET', path: '/opaque', handle: async () => ({ status: 200, body: await deps.store.whatever() }) },
+  ]
+}
+`,
+      'bodyscan.test.ts': dynamicScanFile(samples),
+    },
+  }
+}
+
+function scanWithCoverage(
+  services: readonly Service[],
+  refs: readonly DynamicScanRef[],
+): EstateScan {
+  const { dir, dispose } = estate(...services)
+  try {
+    return scanEstate({ estateDir: dir, exclude: [], dynamicScans: refs })
+  } finally {
+    dispose()
+  }
+}
+
+const BOTH_ROUTES = [
+  { method: 'POST', route: '/v1/exports/:id/challenge' },
+  { method: 'GET', route: '/opaque' },
+]
+
+describe('what a service drives dynamically is DERIVED from its source, never written here', () => {
+  it('reads the sample list out of the AST and agrees with this analyser in both directions', () => {
+    const result = scanWithCoverage([custodyFixture(BOTH_ROUTES)], [CUSTODY_REF])
+    const coverage = result.dynamicCoverage[0]
+    assert.ok(coverage, 'no coverage was derived at all')
+    assert.deepEqual([...coverage.driven], ['GET /opaque', 'POST /v1/exports/:id/challenge'])
+    assert.deepEqual([...coverage.undriven], [], 'a route this analyser sees that the sweep does not drive')
+    assert.deepEqual([...coverage.phantom], [], 'a sample for a route this analyser does not see')
+    // The nested `body:` literal in every sample has neither property and must not be read as one.
+    assert.equal(coverage.driven.length, 2, 'a nested object literal was counted as a sample')
+  })
+
+  it('goes RED, naming the route, when a sample is deleted — the a633986 defect itself', () => {
+    // This is the fixture form of custody BEFORE a633986: the server routes `challenge` and the
+    // sweep drives everything except it.
+    const result = scanWithCoverage(
+      [custodyFixture([{ method: 'GET', route: '/opaque' }])],
+      [CUSTODY_REF],
+    )
+    const report = reconcileBodyScan(result, { maxBlindRoutes: 99, maxBlindToEveryCheck: 99 })
+    assert.equal(report.ok, false, 'a route the sweep stopped driving is not green')
+    assert.equal(report.coverageMismatches.length, 1)
+    assert.deepEqual([...report.coverageMismatches[0]!.undriven], ['POST /v1/exports/:id/challenge'])
+    // Named in the output, not merely counted — a red nobody can act on is a red for the wrong reason.
+    const text = formatBodyScan(report, result)
+    assert.match(text, /COVERAGE/)
+    assert.match(text, /driven by nothing: POST \/v1\/exports\/:id\/challenge/)
+  })
+
+  it('goes RED, naming it, on a sample for a route the server does not have', () => {
+    const result = scanWithCoverage(
+      [custodyFixture([...BOTH_ROUTES, { method: 'DELETE', route: '/v1/gone' }])],
+      [CUSTODY_REF],
+    )
+    const report = reconcileBodyScan(result, { maxBlindRoutes: 99, maxBlindToEveryCheck: 99 })
+    assert.equal(report.ok, false)
+    assert.deepEqual([...report.coverageMismatches[0]!.phantom], ['DELETE /v1/gone'])
+    assert.match(formatBodyScan(report, result), /a sample for a route this scan does not see: DELETE \/v1\/gone/)
+  })
+
+  it('THROWS rather than returning zero when the samples cannot be parsed', () => {
+    // Three ways this reader can stop measuring anything, and not one of them may look like "that
+    // service drives no routes" — which would silently move every one of its routes into the
+    // stricter count and be indistinguishable from real coverage having vanished.
+    assert.throws(
+      () => scanWithCoverage([custodyFixture(BOTH_ROUTES)], [{ ...CUSTODY_REF, samples: 'renamedAtSomePoint' }]),
+      /declares no function 'renamedAtSomePoint\(\)'/,
+      'a renamed sample function read as zero routes',
+    )
+    assert.throws(
+      () => scanWithCoverage([custodyFixture(BOTH_ROUTES)], [{ ...CUSTODY_REF, file: 'src/moved.test.ts' }]),
+      /could not be read/,
+      'a missing witness file read as zero routes',
+    )
+    assert.throws(
+      () => scanWithCoverage([custodyFixture([])], [CUSTODY_REF]),
+      /yielded ZERO routes/,
+      'an empty sample list read as zero routes',
+    )
+    // And the sharpest one: the property that names the route renamed. Every literal still parses,
+    // every sample is still found, and the route set is empty.
+    assert.throws(
+      () => scanWithCoverage([custodyFixture(BOTH_ROUTES)], [{ ...CUSTODY_REF, declares: 'endpoint' }]),
+      /yielded ZERO routes/,
+      'a renamed route property read as zero routes',
+    )
+  })
+
+  it('an acknowledgement no dynamic scan drives is RED, which is the rule the stale sentence became', () => {
+    const acknowledged = ACKNOWLEDGED.filter((entry) => entry.service === 'custody')
+    assert.ok(acknowledged.length > 0, 'nothing is acknowledged in custody — this case is now vacuous')
+
+    // custody as it was before a633986: `challenge` is routed, returns the reveal token, is
+    // acknowledged for it — and is driven by nothing. The acknowledgement was the ONLY account in
+    // the estate of what that route returns, and it was a sentence.
+    const before = scanWithCoverage(
+      [
+        {
+          name: 'custody',
+          files: {
+            'migrations.ts': SECRET_TABLE,
+            'server.ts': `${PREAMBLE}
+function buildRoutes(): Route[] {
+  return [
+${acknowledged.map((e) => `    { method: '${e.method}', path: '${e.path}', handle: async () => ({ status: 200, body: { revealToken: 'a-fixture-token', material: 'a-fixture-secret' } }) },`).join('\n')}
+  ]
+}
+`,
+            'bodyscan.test.ts': dynamicScanFile(
+              acknowledged
+                .filter((e) => e.path !== '/v1/exports/:id/challenge')
+                .map((e) => ({ method: e.method, route: e.path })),
+            ),
+          },
+        },
+      ],
+      [CUSTODY_REF],
+    )
+    const stillStale = reconcileBodyScan(before, { maxBlindRoutes: 99, maxBlindToEveryCheck: 99 })
+    assert.equal(stillStale.ok, false)
+    assert.deepEqual(
+      stillStale.unwitnessedAcknowledgements.map((e) => `${e.method} ${e.path}`),
+      ['POST /v1/exports/:id/challenge'],
+      'the unwitnessed acknowledgement was not found, or the wrong one was',
+    )
+    assert.match(formatBodyScan(stillStale, before), /UNWITNESSED\s+custody POST \/v1\/exports\/:id\/challenge/)
+
+    // …and custody as it is now: every acknowledged route driven, nothing unwitnessed.
+    const after = scanWithCoverage(
+      [
+        {
+          name: 'custody',
+          files: {
+            'migrations.ts': SECRET_TABLE,
+            'server.ts': `${PREAMBLE}
+function buildRoutes(): Route[] {
+  return [
+${acknowledged.map((e) => `    { method: '${e.method}', path: '${e.path}', handle: async () => ({ status: 200, body: { revealToken: 'a-fixture-token', material: 'a-fixture-secret' } }) },`).join('\n')}
+  ]
+}
+`,
+            'bodyscan.test.ts': dynamicScanFile(acknowledged.map((e) => ({ method: e.method, route: e.path }))),
+          },
+        },
+      ],
+      [CUSTODY_REF],
+    )
+    const report = reconcileBodyScan(after, { maxBlindRoutes: 99, maxBlindToEveryCheck: 99 })
+    assert.deepEqual([...report.unwitnessedAcknowledgements], [])
+    assert.deepEqual([...report.coverageMismatches], [])
+  })
+})
+
+describe('the two blind counts are separate numbers, and the stricter one is the derived one', () => {
+  it('a blind route a dynamic scan drives still counts above and NOT below', () => {
+    const driven = scanWithCoverage([custodyFixture(BOTH_ROUTES)], [CUSTODY_REF])
+    const report = reconcileBodyScan(driven, { maxBlindRoutes: 99, maxBlindToEveryCheck: 99 })
+    // `GET /opaque` returns `await deps.store.whatever()`, which this analyser cannot open.
+    assert.deepEqual(report.blindRoutes.map((r) => `${r.method} ${r.path}`), ['GET /opaque'])
+    assert.equal(report.blindRoutes[0]?.drivenDynamically, true)
+    assert.deepEqual([...report.blindToEveryCheck], [], 'a route its own sweep drives is not watched by nothing')
+    // The static count is UNMOVED by that: it measures this analyser's reach, not the estate's.
+    assert.equal(report.blindRoutes.length, 1)
+  })
+
+  it('and the same route with no dynamic scan at all counts in BOTH', () => {
+    const undriven = scanWithCoverage([custodyFixture(BOTH_ROUTES)], [])
+    const report = reconcileBodyScan(undriven, { maxBlindRoutes: 99, maxBlindToEveryCheck: 99 })
+    assert.equal(report.blindRoutes.length, 1, 'the static count moved when only the coverage did')
+    assert.equal(report.blindToEveryCheck.length, 1)
+    assert.equal(report.blindRoutes[0]?.drivenDynamically, false)
+  })
+
+  it('the stricter gate can fail on its own, with the static one satisfied', () => {
+    // Otherwise the second number is decoration: a run where the first budget passes and the second
+    // does not has to be RED, or nothing is ever gained by driving a route.
+    const undriven = scanWithCoverage([custodyFixture(BOTH_ROUTES)], [])
+    const report = reconcileBodyScan(undriven, { maxBlindRoutes: 99, maxBlindToEveryCheck: 0 })
+    assert.equal(report.ok, false, 'the stricter budget was exceeded and the run was green')
+    assert.match(formatBodyScan(report, undriven), /AND THE STRICTER ONE — 1 of those 1 are watched by NOTHING/)
+  })
+
+  it('both baselines are recorded numbers, and the stricter one is not above the other', () => {
+    assert.equal(Number.isInteger(BASELINE_BLIND_TO_EVERY_CHECK), true)
+    assert.equal(
+      BASELINE_BLIND_TO_EVERY_CHECK <= BASELINE_BLIND_ROUTES,
+      true,
+      'the subset cannot be larger than the set it is a subset of',
+    )
+  })
+
+  it('every declared dynamic scan names a service, a file, a function and a reason', () => {
+    for (const ref of DYNAMIC_SCANS) {
+      assert.equal(ref.file.endsWith('.ts'), true, `${ref.service} points at no source file`)
+      assert.equal(ref.samples.length > 0, true, `${ref.service} names no sample function`)
+      assert.equal(ref.declares.length > 0, true, `${ref.service} names no route property`)
+      assert.equal(ref.because.length > 120, true, `${ref.service} has an assertion, not an argument`)
+    }
+  })
+
+  it('no acknowledgement RESTATES what the coverage reader derives', () => {
+    // The specific rot this replaced: a sentence in `because` claiming what another repository's
+    // test did or did not cover. That fact is computed now, and a second copy of it in prose can
+    // only ever disagree with the computation. Cheap, and it is the assertion that would have
+    // caught the original.
+    for (const entry of ACKNOWLEDGED) {
+      const claim = /(does|did) NOT cover|is not covered by|no dynamic scan (covers|drives)/i.exec(entry.because)
+      assert.equal(
+        claim,
+        null,
+        `${entry.method} ${entry.path} states its dynamic coverage in prose ("${claim?.[0]}") — that is derived, not written`,
+      )
+    }
   })
 })
 

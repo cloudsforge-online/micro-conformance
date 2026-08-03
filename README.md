@@ -269,8 +269,10 @@ node --import tsx src/cli.ts body-scan-canary --estate ..   # prove it can still
 `docs/ecosystem/17-definition-of-done.md` §5 item 4 requires the property be asserted "by a
 response-body scan across the entire route surface, **not by inspection**". Exactly one service of
 twenty-four implements it — `custody/src/bodyscan.test.ts`, which mints a key in every family, reads
-the plaintext out of the vault, drives custody's routes and asserts no body contains any of it. It
-is the right instrument and it is the model for this one.
+the plaintext out of the vault, drives every route in `server.routeTable()` and asserts no body and
+no header contains any of it. It is the right instrument and it is the model for this one. It is
+also the only entry in `DYNAMIC_SCANS`, which is how this scan knows — by reading it, not by being
+told — which routes something else in the estate already watches.
 
 The only estate-wide key check that existed before this was
 `org/.github/workflows/secret-hygiene.yml:73-83`, which greps repository **files** for PEM blocks. A
@@ -308,7 +310,33 @@ authenticating route in the estate on its first run.
 are custody's export ceremony — each with a reason and a citation. It is a **ratchet, not an
 exemption list**: an acknowledgement that matches nothing in the checkout is **red**, so a deleted
 route cannot leave a standing permission behind it, and a scan that quietly stopped reading a route
-does not look like a clean estate.
+does not look like a clean estate. And an acknowledgement **no dynamic scan drives** is red too —
+see *The finding it produced* below.
+
+### Two blind-route numbers, and why custody's dynamic work did not move the first one
+
+| | Counts | Today | Lowered by |
+| --- | --- | --- | --- |
+| `BASELINE_BLIND_ROUTES` | Routes in a key-holding service whose body **this analyser** cannot fully read | **37** | Opening a value here, or a simpler body there |
+| `BASELINE_BLIND_TO_EVERY_CHECK` | Of those, the ones **no dynamic scan** in their own service drives either | **31** | A service driving one of its own routes |
+
+Custody's `a633986` drives all six of its routes in the first list, four of them non-probes, with
+real key material in the vault. The obvious move is 37 → 33. It is wrong three times over:
+
+1. **A run still says 37.** Not one line of custody's *source* changed in a way this reads —
+   `deps.metrics.render()`, `randomBytes(32)`, the emit callback in `outbox.ts:91` are exactly as
+   opaque as yesterday. 33 does not record progress; it turns the gate red and invites the next
+   person to put it back. A measurement is not lowered by arithmetic on a commit message.
+2. **It would make one number mean two things.** This one measures *this analyser's reach*, which is
+   what makes a rise actionable: somebody wrote a body it cannot follow.
+3. **It would break the ratchet's own rule.** This number may only go *down*. If custody's coverage
+   could lower it, custody deleting a sample would have to *raise* it — a ratchet another repository
+   can force upward is not a ratchet.
+
+So custody's work lowered the **second** number instead, which is the one that answers the question
+a reader actually has: how much of the estate's key-holding route surface is watched by nothing.
+`identity` holds the key that signs every token in the estate and has no dynamic body scan at all;
+all 18 of its blind routes are in there. That is the next thing worth doing.
 
 ### What it cannot see
 
@@ -320,25 +348,42 @@ does not look like a clean estate.
   matters: today **37 of the 113 routes** in the four services that hold key material (`custody`,
   `identity`, `devplatform`, `notify`) have a response this cannot fully account for. Every one is
   listed by `path:line` on every run.
+- **Whether a route is watched by anything else.** Derived, not assumed:
+  `BASELINE_BLIND_TO_EVERY_CHECK` is **31** — of those 37, the ones their own service does not drive
+  dynamically either. See below for why these are two numbers and not one.
 - **Aliasing and mutation.** `const out = {}; out.key = secret; return { body: out }` is not modelled.
   Nothing in the estate builds a body that way today; it is the most likely way a real leak would
   slip past.
 - **Runtime provenance, headers not written as a literal, and `main` only** — like every other
   estate check.
 
-### The finding it produced
+### The finding it produced — and what happened to it
 
-`custody/src/bodyscan.test.ts:15-17` says its routes are "enumerat[ed] from the server's own table
-rather than by hand", and that a route it cannot drive "fails the assertion that the two lists
-agree". It does not do this: `routeSamples()` (bodyscan.test.ts:187) is a hand-written array, the
-file never references `buildRoutes`, and there is no such assertion. Two of custody's 21 routes are
-driven by neither the scan nor the ceremony test — `POST /v1/exports/:id/cancel` and
-`POST /v1/exports/:id/challenge`. The second returns the reveal token
-(`custody/src/server.ts:549`), which custody itself calls "the one secret in the estate that yields
-a private key" (`exports.ts:447`).
+This scan's first run found that `custody/src/bodyscan.test.ts` claimed to enumerate "the routes
+from the server's own table rather than by hand" while `routeSamples()` was a hand-typed array that
+never referenced `buildRoutes`. Two of custody's 21 routes were therefore driven by nothing —
+`POST /v1/exports/:id/cancel` and `POST /v1/exports/:id/challenge`, the second being the one that
+returns the reveal token. Custody fixed it in `a633986`: the sample list is reconciled against
+`routeTable()` in both directions, and the server's own `http_requests_total{route=…}` counter is
+read back so a sample that names one route and drives another fails.
 
-Not a criticism of a good test — the reason a claim about a route surface has to be *derived* from
-the route surface.
+**The more useful finding is what that did to this repository.** The fix made a sentence in
+`ACKNOWLEDGED` false — and nothing here could tell, because it was prose. That is the rot the estate
+spent a night clearing: ~40 stale citations across four repositories, a gap file whose evidence
+pointed at the wrong remedy, and a comment describing a test rather than reading it.
+
+So the claim is no longer stored. `DYNAMIC_SCANS` stores a **pointer** — service, file, sample
+function — and `readDynamicCoverage` parses the route set out of that file's AST on every run,
+reconciling it **in both directions** against the routes this analyser independently extracted from
+the same service's `buildRoutes`. Two readers, one source; a disagreement either way is red and
+names the route. A declared scan whose file, function, sample list or route property has moved
+**throws** — it is never quietly zero, because a coverage reader whose failure mode is a smaller
+number would silently discount blind routes.
+
+And the rule that sentence became: **an acknowledgement no dynamic scan drives is red.** A standing
+permission to return key material on a route nothing exercises means the only account of what that
+route returns is the acknowledgement's own prose. On `a633986`'s parent commit this was red for
+`POST /v1/exports/:id/challenge`, which is the whole argument for it.
 
 ### What `micro-org` must add to `estate-ci.yml`
 
@@ -364,6 +409,18 @@ field**, removes it, and asserts the estate is green again — because a red tha
 was never the canary's red. It has been proven to fail in both directions: with `privatekey` removed
 from the vocabulary it reports "stayed GREEN … it is measuring nothing", and with the helper-call
 route spelling broken it reports "went red but never named the injected FILE".
+
+**The two steps above are unchanged and need no edit.** What changed is what `body-scan` exits 1
+*for*, and micro-org should know it because a red will now name things that are not leaks:
+
+| New failure | Reads like | Who fixes it |
+| --- | --- | --- |
+| `COVERAGE` | `custody/src/bodyscan.test.ts and this analyser disagree about custody's routes` | Whoever changed custody's routes or its sweep — **not** this repo's budget |
+| `UNWITNESSED` | an acknowledged route no dynamic scan drives | The service that owns the route: drive it, or withdraw the acknowledgement |
+| a thrown error naming a sample function | the coverage reader could not parse a declared dynamic scan | This repository — `readDynamicCoverage` |
+
+It still needs **all** the sibling checkouts on one disk, and it still dials nothing. It reads
+`custody/src/bodyscan.test.ts` as *source*; it does not run it, and does not need a database.
 
 ---
 

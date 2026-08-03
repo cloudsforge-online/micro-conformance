@@ -17,23 +17,27 @@
  * FILES for PEM blocks. A grep over files cannot see what a running route returns; the two checks
  * do not overlap at all.
  *
- * AND CUSTODY'S SCAN IS NARROWER THAN ITS OWN DOCSTRING SAYS, which is the sharpest argument for
- * this file existing. `custody/src/bodyscan.test.ts:15-17` states:
+ * CUSTODY'S SCAN WAS ONCE NARROWER THAN ITS OWN DOCSTRING SAID, and the history is why this file no
+ * longer contains a sentence about it. `custody/src/bodyscan.test.ts` used to claim it enumerated
+ * "the routes from the server's own table rather than by hand" while `routeSamples()` was a
+ * hand-typed array that never referenced `buildRoutes`; two routes — `POST /v1/exports/:id/cancel`
+ * and `POST /v1/exports/:id/challenge` — were therefore driven by nothing at all, the second being
+ * the one that returns the reveal token. Custody fixed that in `a633986`: `routeTable()` is derived
+ * from `buildRoutes()`, samples DECLARE the route they cover, the two sets must be equal in both
+ * directions, and the server's own `http_requests_total{route=…}` counter is read back so a declared
+ * route that was not actually reached fails naming itself.
  *
- *   > Enumerating the routes from the server's own table rather than by hand is deliberate: a route
- *   > added later is a route this test drives automatically, and one it cannot drive fails the
- *   > assertion that the two lists agree.
+ * THIS FILE RESTATED THAT DEFECT IN PROSE FOR EXACTLY AS LONG AS IT EXISTED, AND THEN FOR A WHILE
+ * AFTER IT WAS FIXED. That is the same rot the estate spent a night clearing: ~40 stale citations
+ * across four repositories, a gap file whose evidence pointed at the wrong remedy, and — precisely
+ * here — a comment that described a test rather than reading it. So the claim is now DERIVED:
+ * `readDynamicCoverage` parses custody's sample list out of its AST on every run and reconciles it,
+ * in both directions, against the routes this analyser independently extracted from custody's
+ * `buildRoutes`. Two numbers computed from the same source by two different readers, and a
+ * disagreement is red. Nothing here asserts in prose what a route surface says for itself.
  *
- * It does not do this. `routeSamples()` (bodyscan.test.ts:187) is a hand-written array; the file
- * never references `buildRoutes`, and there is no assertion that the two lists agree. Of the 21
- * routes in `custody/src/server.ts`, two are driven by neither the scan nor the ceremony test —
- * `POST /v1/exports/:id/cancel` and `POST /v1/exports/:id/challenge`. The second is the route that
- * returns the reveal token (`custody/src/server.ts:549`), which custody itself calls "the one secret
- * in the estate that yields a private key" (`exports.ts:447`).
- *
- * That is not a criticism of a good test; it is the reason a claim about a route surface has to be
- * derived from the route surface. This module reads `buildRoutes` itself, so a route added tomorrow
- * is judged tomorrow — including the two custody's own scan does not reach.
+ * That is also the reason a claim about a route surface has to be derived from the route surface.
+ * This module reads `buildRoutes` itself, so a route added tomorrow is judged tomorrow.
  *
  * ════════════════════════════════════════════════════════════════════════════════════════════════
  * STATIC, AND WHAT THAT COSTS
@@ -72,7 +76,9 @@
  *     recorded as an OPAQUE reach: named, classified by WHY, printed, and never silently dropped.
  *     `BASELINE_BLIND_ROUTES` is the ratchet on the part of that which matters: today 37 of the 113
  *     routes in the four services that hold key material have a response this cannot fully account
- *     for, and every one is printed by name on every run.
+ *     for, and every one is printed by name on every run. `BASELINE_BLIND_TO_EVERY_CHECK` is the
+ *     second, stricter ratchet beneath it — of those 37, the 31 that no dynamic body scan in their
+ *     own service drives either. Read both constants: they are two numbers on purpose.
  *   * **One level of field sensitivity, and no more.** `a.b.c` is followed as "the `c` of the `b`"
  *     for one hop at a time, and `MAX_DEPTH` is 14. A body assembled through fifteen layers is a
  *     `depth-limit` reach — counted, and a defect in this analyser rather than in the estate.
@@ -82,7 +88,11 @@
  *     than a feature — but it is the most likely way a real leak would slip past.
  *   * **Anything a route's own SUITE could see and this cannot.** custody's dynamic scan knows the
  *     actual bytes of an actual private key and asserts no actual response contains them. That is a
- *     strictly different and stronger claim about custody's routes than anything here.
+ *     strictly different and stronger claim about custody's routes than anything here — which is
+ *     why a route it drives does NOT reduce `BASELINE_BLIND_ROUTES`, and does reduce
+ *     `BASELINE_BLIND_TO_EVERY_CHECK`. And this file can only see that the sample EXISTS, in source;
+ *     that it RUNS is custody's suite's business, and custody's skips itself without a test
+ *     database. `DYNAMIC_SCANS` says so where it is declared.
  *   * **Runtime provenance.** A handler returning a database row this analyser resolved to a table
  *     with no secret column is judged on the schema in `migrations.ts`. A column added by hand in
  *     production, a `jsonb` blob with a key inside it, or a row already written is invisible.
@@ -1169,12 +1179,23 @@ export interface EstateScan {
    * acknowledgements look used by the first — which is a green produced by state, not by evidence.
    */
   readonly acknowledged: readonly Acknowledgement[]
+  /**
+   * What each service's OWN dynamic body scan drives, derived from its source. See `DYNAMIC_SCANS`.
+   *
+   * Only for services this run actually read: a declared scan whose repository is not in the
+   * checkout is absent from here rather than fatal, because "the estate is not all on this disk" is
+   * already refused by `MIN_SERVERS`/`MIN_ROUTES` in the CLI and does not need a second, worse-worded
+   * failure. A service that IS here with a broken or missing scan throws.
+   */
+  readonly dynamicCoverage: readonly DynamicCoverage[]
 }
 
 export interface ScanOptions {
   readonly estateDir: string
   /** Defaults to this harness, which holds the vocabulary and would report itself. */
   readonly exclude?: readonly string[]
+  /** Defaults to `DYNAMIC_SCANS`. Overridden by the suite, which builds fixture estates. */
+  readonly dynamicScans?: readonly DynamicScanRef[]
 }
 
 export const DEFAULT_EXCLUDED = Object.freeze(['conformance'])
@@ -1228,6 +1249,8 @@ function collectServerSources(dir: string, out: string[]): void {
  */
 export function scanEstate(options: ScanOptions): EstateScan {
   const excluded = options.exclude ?? DEFAULT_EXCLUDED
+  const dynamicScans = options.dynamicScans ?? DYNAMIC_SCANS
+  const dynamicCoverage: DynamicCoverage[] = []
   const routes: RouteRef[] = []
   const findings: Finding[] = []
   const opaque: Finding[] = []
@@ -1326,6 +1349,15 @@ export function scanEstate(options: ScanOptions): EstateScan {
       continue
     }
     services.push(repo)
+
+    // Read AFTER the routes, because the reconciliation needs both sides. Reconciled against this
+    // repository's routes only — a dynamic scan in custody says nothing about identity.
+    for (const ref of dynamicScans) {
+      if (ref.service !== repo) continue
+      dynamicCoverage.push(
+        readDynamicCoverage(ref, repoRoot, routes.filter((route) => route.service === repo)),
+      )
+    }
   }
 
   return {
@@ -1338,6 +1370,7 @@ export function scanEstate(options: ScanOptions): EstateScan {
     excluded,
     holdsKeyMaterial,
     acknowledged: [...acknowledged],
+    dynamicCoverage,
   }
 }
 
@@ -1398,11 +1431,150 @@ export const ACKNOWLEDGED: readonly Acknowledgement[] = Object.freeze([
     because:
       'custody/src/server.ts:549. The ceremony\'s second gate hands the single-use token to the owner ' +
       'after a fresh MFA assertion; it is the credential for the redeem above and it has to reach the ' +
-      'caller somehow. Note that custody\'s own dynamic scan does NOT cover this route — see ' +
-      'FINDINGS.md and the report — so this static acknowledgement is currently the only thing in the ' +
-      'estate that records the route returns it at all.',
+      'caller somehow. This entry once ALSO carried a sentence about how much of this route custody\'s ' +
+      'own dynamic scan reached. It was accurate when written and wrong from `a633986` onward, and ' +
+      'nothing here could tell the difference, because it was prose. Whether a suite drives this route ' +
+      'is now COMPUTED on every run — see `DYNAMIC_SCANS`, and `unwitnessedAcknowledgements`, which is ' +
+      'the rule that sentence became and which this route is the reason for.',
   },
 ])
+
+/**
+ * WHERE A SERVICE PROVES THE SAME PROPERTY DYNAMICALLY, AND HOW THIS FILE READS IT RATHER THAN
+ * DESCRIBING IT.
+ *
+ * The `challenge` acknowledgement above used to end with a sentence of prose about what custody's
+ * own body scan did and did not cover. That sentence went stale the moment custody fixed its scan,
+ * and it went stale silently, because no check in this estate can read a comment. It is the same rot
+ * the estate spent a night clearing — roughly forty stale citations across four repositories, a gap
+ * file whose evidence pointed at the wrong remedy, and custody's own comment claiming its test
+ * enumerated routes it enumerated by hand.
+ *
+ * The fix for a fact that rots is not a fresher sentence. It is to stop storing the fact.
+ *
+ * WHAT IS STORED INSTEAD: a POINTER — the service, the file, and the function whose entries name the
+ * routes it drives. `readDynamicCoverage` parses that function out of the AST on every run. The
+ * route set it yields is then reconciled, IN BOTH DIRECTIONS, against the routes this analyser
+ * independently extracted from that service's `buildRoutes`. Two readers, one source, and a
+ * disagreement either way is red.
+ *
+ * THAT RECONCILIATION IS ALSO THE PARSER'S OWN SELF-CHECK, and it is the part worth defending. A
+ * derived number is only better than a written one if a broken derivation is loud. This estate has
+ * already shipped a parser that read exactly one registry entry because a draft contained `as const`
+ * inside a literal, and reported success. So: a declared dynamic scan whose file is gone, whose
+ * function is gone, or whose entries read as ZERO routes THROWS — it is never quietly zero. And
+ * short of zero, a parser that dropped a single sample produces an `undriven` route and goes red
+ * naming it. The failure mode of this reader is a red run, not a smaller number.
+ *
+ * WHAT IT DOES NOT PROVE. That the dynamic scan RUNS. This reads source; whether custody's suite
+ * executes is custody's CI's business, and custody's SD-16 tests carry `{ skip }` when
+ * `CUSTODY_TEST_DATABASE_URL` is unset (`custody/src/testsupport.ts:34`). So a route here is
+ * "declared to be driven", never "observed clean" — which is exactly why this cannot be allowed to
+ * reduce `BASELINE_BLIND_ROUTES`, and can be allowed to reduce the count of routes nothing watches.
+ */
+export interface DynamicScanRef {
+  readonly service: string
+  /** Repository-relative path to the suite that drives the routes. */
+  readonly file: string
+  /** The function whose object literals enumerate the samples. */
+  readonly samples: string
+  /** The property on each sample that names the route AS THE SERVER DECLARES IT. */
+  readonly declares: string
+  readonly because: string
+}
+
+export const DYNAMIC_SCANS: readonly DynamicScanRef[] = Object.freeze([
+  {
+    service: 'custody',
+    file: 'src/bodyscan.test.ts',
+    samples: 'routeSamples',
+    declares: 'route',
+    because:
+      'The estate\'s only dynamic implementation of `docs/ecosystem/17-definition-of-done.md` §5 item ' +
+      '4. It mints a key in every family, reads the plaintext out of its own vault, drives every route ' +
+      'in `server.routeTable()` and asserts no body and no header contains any of it. Since a633986 it ' +
+      'also reads back `http_requests_total{route=…}`, so a sample that declares one route and drives ' +
+      'another leaves the declared route on zero and fails naming it — which is what makes the `route:` ' +
+      'string parsed here mean "reached", and not "typed".',
+  },
+])
+
+/** What a service's own dynamic body scan drives, derived from its source on every run. */
+export interface DynamicCoverage {
+  readonly service: string
+  readonly file: string
+  /** `METHOD /path`, as the server declares the path. Sorted. */
+  readonly driven: readonly string[]
+  /** Routes this analyser extracted that the dynamic scan declares no sample for. RED. */
+  readonly undriven: readonly string[]
+  /** Samples for routes this analyser did not extract — a rename, or a broken extractor. RED. */
+  readonly phantom: readonly string[]
+}
+
+/**
+ * Parse one dynamic scan's sample list, and reconcile it against what this analyser saw.
+ *
+ * Throws rather than returning an empty set for every way this could stop measuring anything. See
+ * `DYNAMIC_SCANS` for why that severity is the point.
+ */
+export function readDynamicCoverage(
+  ref: DynamicScanRef,
+  repoRoot: string,
+  extracted: readonly RouteRef[],
+): DynamicCoverage {
+  const path = join(repoRoot, ref.file)
+  let text: string
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(path))
+  } catch (err) {
+    throw new Error(
+      `${ref.service}/${ref.file} is declared as a dynamic body scan and could not be read (${String(err)}). ` +
+        'Delete the DYNAMIC_SCANS entry or restore the file; a missing witness must never read as zero.',
+    )
+  }
+
+  const tree = ts.createSourceFile(path, text, ts.ScriptTarget.ES2023, true, ts.ScriptKind.TS)
+  const fn = findFunctionIn(tree, ref.samples)
+  if (!fn) {
+    throw new Error(
+      `${ref.service}/${ref.file} declares no function '${ref.samples}()' — the sample list this scan ` +
+        'reads its route coverage from has been renamed or removed.',
+    )
+  }
+
+  // Every object literal under it carrying BOTH a method and the declared route property. Nested
+  // literals are walked too: a sample whose `body:` holds an object is not a sample, and is skipped
+  // because it has neither property — which is the shape a name match would have got wrong.
+  const driven = new Set<string>()
+  const visit = (node: ts.Node): void => {
+    if (ts.isObjectLiteralExpression(node)) {
+      const method = propertyValue(node, 'method')
+      const route = propertyValue(node, ref.declares)
+      const methodText = method ? literalString(unwrap(method)) : null
+      const routeText = route ? literalString(unwrap(route)) : null
+      if (methodText && routeText) driven.add(`${methodText.toUpperCase()} ${routeText}`)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(fn)
+
+  if (driven.size === 0) {
+    throw new Error(
+      `${ref.service}/${ref.file}'s '${ref.samples}()' yielded ZERO routes. Either it drives nothing, ` +
+        `or this analyser can no longer read its samples — and a coverage claim that reads as zero ` +
+        'must be fatal, never a quietly smaller number.',
+    )
+  }
+
+  const mine = new Set(extracted.map((route) => `${route.method} ${route.path}`))
+  return {
+    service: ref.service,
+    file: ref.file,
+    driven: [...driven].sort(),
+    undriven: [...mine].filter((route) => !driven.has(route)).sort(),
+    phantom: [...driven].filter((route) => !mine.has(route)).sort(),
+  }
+}
 
 /**
  * How many routes in a key-holding service this scan may fail to fully read.
@@ -1410,8 +1582,57 @@ export const ACKNOWLEDGED: readonly Acknowledgement[] = Object.freeze([
  * Today's count, so the FIRST new one has to be looked at. Lowering it is progress — every step
  * down is a route whose response is now accounted for — and raising it is a decision somebody makes
  * on purpose, in this file, with a reason. It is NOT a knob for getting a red run green.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * WHY custody's a633986 DID NOT MOVE THIS NUMBER, WHICH IS THE MORE INTERESTING HALF.
+ *
+ * Custody now drives all six of its routes that appear in this list, four of them non-probes, with
+ * real key material in the vault and exact response-shape assertions. The obvious move is 37 → 33.
+ * It would be wrong, for three reasons, and the third is the one that settles it.
+ *
+ *   1. IT IS NOT WHAT A RUN SAYS. `conformance body-scan --estate ..` still reports 37, because not
+ *      one line of custody's SOURCE changed in a way this analyser reads. `deps.lifecycle.livez()`,
+ *      `deps.metrics.render()`, `randomBytes(32)` in `exports.ts:349` and the emit callback in
+ *      `outbox.ts:91` are exactly as opaque to a static walk as they were yesterday. Setting the
+ *      constant to 33 does not record progress; it turns the gate red on the next run and invites
+ *      the next person to set it back. The number is a MEASUREMENT, and a measurement is not lowered
+ *      by arithmetic on a commit message — including mine.
+ *
+ *   2. IT WOULD MAKE ONE NUMBER MEAN TWO THINGS. This counts routes THIS ANALYSER cannot fully read.
+ *      That is a fact about this analyser's reach, and it is the fact that makes the number useful:
+ *      when it rises, someone wrote a body this cannot follow. Subtracting routes because a test in
+ *      another repository drives them makes it a blend of two properties, and a reader can no longer
+ *      tell which one moved.
+ *
+ *   3. IT WOULD BREAK THE RATCHET'S OWN RULE, and this is the decisive one. This number may only go
+ *      DOWN. If custody's dynamic coverage could lower it, then custody deleting a sample would have
+ *      to RAISE it — a ratchet whose value depends on another repository's test file is a ratchet
+ *      another repository can force upward. The property that makes this constant trustworthy is
+ *      that only work in the estate's route surface, or in this analyser, can move it.
+ *
+ * The honest thing custody's work earned is a DIFFERENT number, below. The two are printed together
+ * so the relationship is visible rather than argued.
  */
 export const BASELINE_BLIND_ROUTES = 37
+
+/**
+ * Of the routes above, the ones NO check in the estate accounts for — static or dynamic.
+ *
+ * This is the number that answers the question a reader actually has. `BASELINE_BLIND_ROUTES` says
+ * how far this analyser can see; this says how much of the estate's key-holding route surface is
+ * watched by NOTHING: a body this cannot read, in a service with a private key to lose, in a service
+ * whose own suite does not drive that route either.
+ *
+ * It is 31 today because custody's six are now driven by `custody/src/bodyscan.test.ts` — verified
+ * by a real run, not by subtraction. It is the number custody's a633986 legitimately lowered, and
+ * the reason it is a separate constant rather than a discount applied to the one above is written
+ * out there.
+ *
+ * It ratchets the same way and it is the stricter of the two: `identity` holds the key that signs
+ * every token in the estate and has no dynamic body scan at all, so all 18 of its blind routes are
+ * in here. That is the next thing worth doing, and this constant is where it will show up.
+ */
+export const BASELINE_BLIND_TO_EVERY_CHECK = 31
 
 function acknowledgementFor(route: RouteRef, field: string): Acknowledgement | undefined {
   return ACKNOWLEDGED.find(
@@ -1562,6 +1783,15 @@ export interface BlindRoute {
   readonly method: string
   readonly path: string
   readonly reasons: readonly OpaqueReason[]
+  /**
+   * Whether the service's OWN dynamic body scan declares a sample for this route.
+   *
+   * Derived from `EstateScan.dynamicCoverage`, never written down. A `true` here does NOT mean the
+   * route is clean and does NOT discount it from `BASELINE_BLIND_ROUTES` — it means something else
+   * in the estate is looking at it, which is the difference between "this analyser cannot read it"
+   * and "nothing anywhere reads it".
+   */
+  readonly drivenDynamically: boolean
 }
 
 export interface BodyScanReport {
@@ -1583,16 +1813,51 @@ export interface BodyScanReport {
    * is printed by name. A service that grows a vault joins the numerator automatically.
    */
   readonly blindRoutes: readonly BlindRoute[]
+  /**
+   * THE STRICTER NUMBER: blind here, and driven by no dynamic scan in their own service either.
+   *
+   * The subset of `blindRoutes` that nothing in the estate accounts for. See
+   * `BASELINE_BLIND_TO_EVERY_CHECK` for why this is a second number rather than a discount on the
+   * first.
+   */
+  readonly blindToEveryCheck: readonly BlindRoute[]
+  /**
+   * A service's dynamic scan and this analyser disagreeing about that service's route surface.
+   *
+   * Either the dynamic scan stopped driving a route that exists, or this reader stopped parsing its
+   * samples. Both are red, and the message says it is one of the two rather than guessing which.
+   */
+  readonly coverageMismatches: readonly DynamicCoverage[]
+  /**
+   * An acknowledged route that NO dynamic scan drives.
+   *
+   * The rule the stale sentence in the `challenge` acknowledgement became. An acknowledgement is
+   * this estate telling the sweep "yes, this route returns key material, on purpose" — a standing
+   * permission over the single most dangerous thing a route can do. Permitting that on a route no
+   * suite anywhere actually drives means the ONLY account of what the route returns is the
+   * acknowledgement's own prose, which is exactly the thing that rotted.
+   *
+   * So: you may acknowledge a route, and you may not acknowledge one nothing witnesses. On
+   * `a633986`'s parent commit this was red for `POST /v1/exports/:id/challenge`, which is the whole
+   * argument for it.
+   */
+  readonly unwitnessedAcknowledgements: readonly Acknowledgement[]
   readonly ok: boolean
 }
 
 export function reconcileBodyScan(
   scan: EstateScan,
-  options: { readonly maxBlindRoutes?: number } = {},
+  options: { readonly maxBlindRoutes?: number; readonly maxBlindToEveryCheck?: number } = {},
 ): BodyScanReport {
   const maxBlindRoutes = options.maxBlindRoutes ?? BASELINE_BLIND_ROUTES
+  const maxBlindToEveryCheck = options.maxBlindToEveryCheck ?? BASELINE_BLIND_TO_EVERY_CHECK
   const used = new Set(scan.acknowledged)
   const stale = ACKNOWLEDGED.filter((entry) => !used.has(entry))
+
+  const drivenBy = new Map<string, Set<string>>()
+  for (const coverage of scan.dynamicCoverage) drivenBy.set(coverage.service, new Set(coverage.driven))
+  const isDriven = (service: string, method: string, path: string): boolean =>
+    drivenBy.get(service)?.has(`${method} ${path}`) ?? false
 
   const blind = new Map<string, BlindRoute>()
   for (const finding of scan.opaque) {
@@ -1607,20 +1872,44 @@ export function reconcileBodyScan(
       }
       continue
     }
-    blind.set(key, { service: finding.service, method: finding.method, path: finding.path, reasons: [reason] })
+    blind.set(key, {
+      service: finding.service,
+      method: finding.method,
+      path: finding.path,
+      reasons: [reason],
+      drivenDynamically: isDriven(finding.service, finding.method, finding.path),
+    })
   }
   const blindRoutes = [...blind.values()]
+  const blindToEveryCheck = blindRoutes.filter((route) => !route.drivenDynamically)
+
+  const coverageMismatches = scan.dynamicCoverage.filter(
+    (coverage) => coverage.undriven.length > 0 || coverage.phantom.length > 0,
+  )
+
+  // Only for services this run actually read. A checkout without custody in it must fail on the
+  // partial-estate refusal, not by reporting custody's acknowledgements unwitnessed — a true
+  // sentence about the wrong problem sends the reader to the wrong file.
+  const unwitnessedAcknowledgements = ACKNOWLEDGED.filter(
+    (entry) => scan.services.includes(entry.service) && !isDriven(entry.service, entry.method, entry.path),
+  )
 
   return {
     violations: scan.findings,
     opaque: scan.opaque,
     staleAcknowledgements: stale,
     blindRoutes,
+    blindToEveryCheck,
+    coverageMismatches,
+    unwitnessedAcknowledgements,
     ok:
       scan.findings.length === 0 &&
       scan.unreadable.length === 0 &&
       stale.length === 0 &&
-      blindRoutes.length <= maxBlindRoutes,
+      coverageMismatches.length === 0 &&
+      unwitnessedAcknowledgements.length === 0 &&
+      blindRoutes.length <= maxBlindRoutes &&
+      blindToEveryCheck.length <= maxBlindToEveryCheck,
   }
 }
 
@@ -1674,6 +1963,29 @@ export function formatBodyScan(report: BodyScanReport, scan: EstateScan): string
     )
   }
 
+  for (const entry of report.unwitnessedAcknowledgements) {
+    lines.push(
+      `UNWITNESSED   ${entry.service} ${entry.method} ${entry.path} is acknowledged to return '${entry.field}', ` +
+        'and no dynamic scan in that service drives it.' +
+        '\n    A standing permission to return key material, on a route nothing actually exercises: the' +
+        '\n    only account of what it returns is the acknowledgement\'s own prose. Drive the route in' +
+        `\n    ${entry.service}'s suite, or withdraw the acknowledgement.`,
+    )
+  }
+
+  for (const coverage of report.coverageMismatches) {
+    lines.push(
+      `COVERAGE      ${coverage.service}/${coverage.file} and this analyser disagree about ${coverage.service}'s routes.` +
+        '\n    Either that scan stopped driving a route that exists, or this stopped reading its samples.' +
+        (coverage.undriven.length > 0
+          ? `\n    driven by nothing: ${coverage.undriven.join(', ')}`
+          : '') +
+        (coverage.phantom.length > 0
+          ? `\n    a sample for a route this scan does not see: ${coverage.phantom.join(', ')}`
+          : ''),
+    )
+  }
+
   lines.push('')
   lines.push(`WHAT THIS RUN COULD NOT READ — ${report.opaque.length} response-body reaches over ${scan.routes.length} routes`)
   const byReason = new Map<string, Finding[]>()
@@ -1696,12 +2008,38 @@ export function formatBodyScan(report: BodyScanReport, scan: EstateScan): string
       '\n  a private key to lose is precisely the hole a green run would otherwise hide.',
   )
   for (const route of report.blindRoutes) {
-    lines.push(`  ${route.service}  ${route.method} ${route.path}  [${route.reasons.join(' ')}]`)
+    const witness = route.drivenDynamically ? '  ← driven dynamically' : ''
+    lines.push(`  ${route.service}  ${route.method} ${route.path}  [${route.reasons.join(' ')}]${witness}`)
     for (const finding of report.opaque) {
       if (finding.service !== route.service || finding.method !== route.method) continue
       if (finding.path !== route.path || finding.reason === 'derived') continue
       lines.push(`      ${finding.file}:${finding.line}  ${finding.evidence}`)
     }
+  }
+
+  // THE SECOND GATE, AND THE RELATIONSHIP BETWEEN THE TWO CHECKS, PRINTED RATHER THAN ARGUED.
+  //
+  // A reader who sees only the number above will ask the obvious question — "custody drives all six
+  // of those now, why is it still 37?" — and the answer has to be in the output, not in a commit
+  // message they will not read. So both numbers are printed, adjacent, with what separates them.
+  lines.push('')
+  lines.push(
+    `AND THE STRICTER ONE — ${report.blindToEveryCheck.length} of those ${report.blindRoutes.length} are watched by NOTHING` +
+      '\n  A route counts above when THIS analyser cannot read its body. It counts here when its own' +
+      '\n  service does not drive it dynamically either. The two are separate on purpose: a dynamic' +
+      '\n  test in another repository proves a different thing (real bytes, real responses, the' +
+      '\n  requests somebody wrote) and cannot be allowed to discount a static blind spot, or a' +
+      '\n  ratchet that may only fall would rise the day that repository deleted a sample.',
+  )
+  for (const coverage of scan.dynamicCoverage) {
+    lines.push(`  ${coverage.service}/${coverage.file} drives ${coverage.driven.length} routes, derived from its source on this run`)
+  }
+  if (scan.dynamicCoverage.length === 0) lines.push('  no service in this checkout declares a dynamic body scan')
+  const unwatched = new Map<string, number>()
+  for (const route of report.blindToEveryCheck) unwatched.set(route.service, (unwatched.get(route.service) ?? 0) + 1)
+  for (const [service, count] of [...unwatched].sort((a, b) => b[1] - a[1])) {
+    const has = scan.dynamicCoverage.some((coverage) => coverage.service === service)
+    lines.push(`  ${String(count).padStart(3)}  ${service}${has ? '' : '   (no dynamic body scan at all)'}`)
   }
   return lines.join('\n')
 }
