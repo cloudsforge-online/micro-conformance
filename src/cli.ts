@@ -18,6 +18,7 @@
 
 import { writeFileSync } from 'node:fs'
 import { relative } from 'node:path'
+import { BASELINE_OPAQUE, MIN_ROUTES, MIN_SERVERS, formatBodyScan, reconcileBodyScan, scanEstate } from './bodyscan.ts'
 import { compareCorpora } from './compare.ts'
 import type { ComparisonReport, Difference } from './compare.ts'
 import { loadCorpus } from './corpus.ts'
@@ -45,6 +46,15 @@ interface Flags {
    * fails and has to be looked at.
    */
   readonly maxUnresolved: number
+  /**
+   * For `body-scan`: how many response-body reaches the analyser may fail to open.
+   *
+   * The same argument as `maxUnresolved`, and it bites harder here. Every unopened reach is a route
+   * whose body this cannot judge, so a budget that drifts upward turns "no route returns key
+   * material" into "no route I could read returns key material" without a single line of the check
+   * changing. The default is today's count.
+   */
+  readonly maxOpaque: number
 }
 
 function parseFlags(argv: readonly string[]): Flags {
@@ -66,6 +76,7 @@ function parseFlags(argv: readonly string[]): Flags {
     verbose: argv.includes('--verbose'),
     estate: get('estate') ?? '..',
     maxUnresolved: Number(get('max-unresolved') ?? String(BASELINE_UNRESOLVED)),
+    maxOpaque: Number(get('max-opaque') ?? String(BASELINE_OPAQUE)),
   }
 }
 
@@ -89,6 +100,13 @@ conformance — the CloudsForge characterisation harness
            services claim one key two ways, when a claim contradicts the chart,
            or when more literals are unresolvable than the budget allows.
            Needs the sibling checkouts on disk; it dials nothing.
+
+  body-scan [--estate ..] [--max-opaque N] [--verbose]
+           Enumerate every route in every service and follow every value that
+           reaches a response body. Exits 1 when a route can return private key
+           material, when an acknowledged exception no longer exists, when a
+           route table cannot be read, or when more body reaches are unresolvable
+           than the budget allows. Source only; it dials nothing and boots nothing.
 
 Base environments: ${baseNames().join(', ')}
 Scenarios:         ${ALL_SCENARIOS.map((s) => s.name).join(', ')}
@@ -116,6 +134,8 @@ async function main(): Promise<number> {
       return doReport(flags)
     case 'ledger-accounts':
       return doLedgerAccounts(flags)
+    case 'body-scan':
+      return doBodyScan(flags)
     default:
       console.error(`unknown command '${command}'\n\n${USAGE}`)
       return 1
@@ -260,6 +280,44 @@ function doLedgerAccounts(flags: Flags): number {
   }
   console.log(result.ok ? 'OK — the estate agrees on every account type it states' : 'FAILED')
   return result.ok ? 0 : 1
+}
+
+/**
+ * The estate-wide response-body scan.
+ *
+ * Fails on a partial checkout BEFORE it prints a verdict, for the reason `doLedgerAccounts` does:
+ * "no route returns key material" over four repositories is a true sentence and a worthless one,
+ * and the number that makes it worth anything — routes read — is printed first.
+ */
+function doBodyScan(flags: Flags): number {
+  const scan = scanEstate({ estateDir: flags.estate })
+  const report = reconcileBodyScan(scan, { maxOpaque: flags.maxOpaque })
+  console.log(formatBodyScan(report, scan))
+  console.log('')
+
+  let refused = false
+  if (scan.services.length < MIN_SERVERS || scan.routes.length < MIN_ROUTES) {
+    console.error(
+      `only ${scan.services.length} servers and ${scan.routes.length} routes under ${flags.estate} — ` +
+        `expected at least ${MIN_SERVERS} and ${MIN_ROUTES}. A scan of a partial checkout cannot ` +
+        'certify the estate; it can only fail to find anything in it.',
+    )
+    refused = true
+  }
+  if (scan.unreadable.length > 0) {
+    console.error(
+      `${scan.unreadable.length} route tables could not be read. Every route in them is a route this ` +
+        'scan silently did not judge — fix the extractor, never the budget.',
+    )
+  }
+  if (report.opaque.length > flags.maxOpaque) {
+    console.error(
+      `${report.opaque.length} unopenable response-body reaches, budget ${flags.maxOpaque}. ` +
+        'Each one is a value this cannot follow into a body; raise the budget only with a reason.',
+    )
+  }
+  console.log(report.ok && !refused ? 'OK — no route in the estate can return key material this scan can identify' : 'FAILED')
+  return report.ok && !refused ? 0 : 1
 }
 
 main().then(
