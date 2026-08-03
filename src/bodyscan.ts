@@ -396,7 +396,7 @@ export function extractRoutes(service: string, file: string, source: string): Ro
 export interface Reach {
   /** How it was named where it entered the body — `privateKey`, `…row`, `<returned>`. */
   readonly as: string
-  readonly kind: 'field' | 'access' | 'call' | 'literal' | 'row' | 'opaque'
+  readonly kind: 'field' | 'access' | 'call' | 'producer' | 'literal' | 'row' | 'opaque'
   /**
    * The file the value was OBSERVED in, absolute — not the file the route is declared in.
    *
@@ -647,6 +647,55 @@ function nearestBinding(from: ts.Node, name: string): ts.Expression | null {
   return null
 }
 
+/**
+ * The module a name is imported from, and the name it has there.
+ *
+ * Shared by `resolveFunction` and `resolveImportedBinding` so the two cannot disagree about which
+ * file a name came from — a disagreement that would show up as a body followed for its functions
+ * and not for its constants, which is exactly the bug this was extracted to fix.
+ */
+function importedFrom(
+  context: WalkContext,
+  tree: ts.SourceFile,
+  name: string,
+): { module: ts.SourceFile; original: string } | null {
+  for (const statement of tree.statements) {
+    if (!ts.isImportDeclaration(statement)) continue
+    const specifier = literalString(statement.moduleSpecifier as ts.Expression)
+    if (specifier === null) continue
+    const clause = statement.importClause
+    if (!clause?.namedBindings || !ts.isNamedImports(clause.namedBindings)) continue
+    const named = clause.namedBindings.elements.find((element) => element.name.text === name)
+    if (!named) continue
+    const module = context.modules.resolve(tree.fileName, specifier)
+    if (!module) return null
+    return { module, original: named.propertyName?.text ?? name }
+  }
+  return null
+}
+
+/**
+ * An imported CONSTANT's initialiser.
+ *
+ * `import { record } from './records.ts'` then `body: { ...record }` is a spread of a value declared
+ * in another file, and a resolver that only followed functions read it as unresolvable — so a spread
+ * putting every field of a record on the wire looked like a value this scan could not open rather
+ * than one it could read perfectly well.
+ */
+function resolveImportedBinding(context: WalkContext, from: ts.Node, name: string): ts.Expression | null {
+  const found = importedFrom(context, from.getSourceFile(), name)
+  if (!found) return null
+  for (const statement of found.module.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === found.original && declaration.initializer) {
+        return declaration.initializer
+      }
+    }
+  }
+  return null
+}
+
 /** A function declared in this file, or exported by a relative import of it. */
 function resolveFunction(
   context: WalkContext,
@@ -839,13 +888,22 @@ export function walkValue(
 
   if (ts.isCallExpression(expression)) {
     const { name, receiver } = calleeName(expression.expression)
-    push(context, { as: name, kind: 'call', ...where(expression) })
-    if (
+    // A PRODUCER is recorded as its own kind, with the receiver in the name.
+    //
+    // It used to be recorded as an ordinary `call` and matched again in `judge` by name alone, which
+    // meant `deps.vault.read(slot)` — the single most direct way to put a private key on a wire in
+    // this estate — was recorded as a call named `read`, matched nothing, and passed. The match is
+    // made ONCE, here, where the receiver is still in hand, and the verdict follows the match
+    // instead of trying to reproduce it.
+    const producer =
       PRODUCER_SET.has(canonicalName(name)) ||
       RECEIVER_PRODUCERS.some(([r, m]) => canonicalName(receiver).includes(r) && canonicalName(name) === m)
-    ) {
-      return
-    }
+    push(context, {
+      as: producer && receiver ? `${receiver}.${name}` : name,
+      kind: producer ? 'producer' : 'call',
+      ...where(expression),
+    })
+    if (producer) return
     // `rows.map(toRecord)` and `rows.map((row) => ({ … }))` — the element shape is the body shape.
     //
     // THE RECEIVER IS DELIBERATELY NOT FOLLOWED. `rows.map(toKeyRecord)` puts the PROJECTION on the
@@ -908,7 +966,7 @@ export function walkValue(
   }
 
   if (ts.isIdentifier(expression)) {
-    const bound = nearestBinding(expression, expression.text)
+    const bound = nearestBinding(expression, expression.text) ?? resolveImportedBinding(context, expression, expression.text)
     if (bound && bound !== expression) {
       walkValue(context, bound, expression.text, depth + 1, position)
       return
@@ -1323,7 +1381,7 @@ export const ACKNOWLEDGED: readonly Acknowledgement[] = Object.freeze([
  * down is a route whose response is now accounted for — and raising it is a decision somebody makes
  * on purpose, in this file, with a reason. It is NOT a knob for getting a red run green.
  */
-export const BASELINE_BLIND_ROUTES = 42
+export const BASELINE_BLIND_ROUTES = 37
 
 function acknowledgementFor(route: RouteRef, field: string): Acknowledgement | undefined {
   return ACKNOWLEDGED.find(
@@ -1343,6 +1401,15 @@ function judge(
   used: Set<Acknowledgement>,
 ): Finding[] {
   const out: Finding[] = []
+  // ONE FINDING PER LEAK, not per site the same leak is visible at.
+  //
+  // `{ privateKey: row.private_key }` fires the name pass twice — once for the field, once for the
+  // access — and `body: { k: getSigningKey().privateKey }` fires it once at the access in server.ts
+  // and once at the definition in keys.ts. All four are the same key on the same route, and a report
+  // that lists them separately makes a reader count findings instead of reading them. The name and
+  // provenance passes therefore key on WHAT was found; the shape and row passes, which have no name
+  // to key on, key on where.
+  const reported = new Set<string>()
   // The finding cites the file the VALUE is in, which is routinely not the file the route is
   // declared in — see `Reach.file`. `declaredAt` keeps the route's own site, so a reader can open
   // both ends of the reach.
@@ -1357,8 +1424,9 @@ function judge(
 
   for (const reach of context.reaches) {
     const canonical = canonicalName(reach.as)
+    const site = `${reach.file}:${reach.line}`
 
-    if (reach.kind === 'field' || reach.kind === 'access' || reach.kind === 'call') {
+    if (reach.kind === 'field' || reach.kind === 'access' || reach.kind === 'call' || reach.kind === 'producer') {
       const tier: Severity | null = MATERIAL_SET.has(canonical)
         ? 'material'
         : ADJACENT_SET.has(canonical)
@@ -1367,7 +1435,8 @@ function judge(
       if (tier) {
         const acknowledgement = acknowledgementFor(route, canonical)
         if (acknowledgement) used.add(acknowledgement)
-        else {
+        else if (!reported.has(`name:${canonical}`)) {
+          reported.add(`name:${canonical}`)
           out.push({
             ...at(reach),
             severity: tier,
@@ -1380,26 +1449,27 @@ function judge(
       }
     }
 
-    if (reach.kind === 'call') {
-      if (PRODUCER_SET.has(canonical)) {
-        const acknowledgement = acknowledgementFor(route, canonical)
-        if (acknowledgement) used.add(acknowledgement)
-        else {
-          out.push({
-            ...at(reach),
-            severity: 'material',
-            pass: 'provenance',
-            detail: `response body is built from '${reach.as}()', which produces plaintext key material`,
-            evidence: reach.text,
-          })
-        }
-        continue
+    if (reach.kind === 'producer') {
+      const acknowledgement = acknowledgementFor(route, canonical)
+      if (acknowledgement) {
+        used.add(acknowledgement)
+      } else if (!reported.has(`prod:${canonical}`)) {
+        reported.add(`prod:${canonical}`)
+        out.push({
+          ...at(reach),
+          severity: 'material',
+          pass: 'provenance',
+          detail: `response body is built from '${reach.as}()', which produces plaintext key material`,
+          evidence: reach.text,
+        })
       }
+      continue
     }
 
     if (reach.kind === 'literal') {
       for (const shape of KEY_SHAPES) {
-        if (shape.pattern.test(reach.text)) {
+        if (shape.pattern.test(reach.text) && !reported.has(site)) {
+          reported.add(site)
           out.push({
             ...at(reach),
             severity: 'material',
@@ -1423,7 +1493,9 @@ function judge(
       const selected = query?.[1] ?? ''
       const table = query?.[2]?.toLowerCase()
       const columns = table ? context.secretTables.get(table) : undefined
-      if (columns && (selected.includes('*') || columns.some((c) => new RegExp(`\\b${c}\\b`).test(selected)))) {
+      const carries = columns && (selected.includes('*') || columns.some((c) => new RegExp(`\\b${c}\\b`).test(selected)))
+      if (carries && !reported.has(site)) {
+        reported.add(site)
         out.push({
           ...at(reach),
           severity: 'material',
@@ -1436,6 +1508,7 @@ function judge(
     }
 
     if (reach.kind === 'opaque') {
+      reported.add(site)
       out.push({
         ...at(reach),
         severity: 'opaque',
