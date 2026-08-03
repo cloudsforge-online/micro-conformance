@@ -4,6 +4,8 @@ Phase 0's regression harness. It records what the running estate **does**, so th
 `micro-*` service replaces one of the eighteen containers, the replacement can be **proven**
 equivalent instead of assumed so.
 
+Design authority: [`ecosystem/14-testing-strategy.md`](https://github.com/cloudsforge-online/micro-docs/blob/main/ecosystem/14-testing-strategy.md)
+
 > The owner's requirement is "validate that existing functionality didn't break". Without a
 > recorded baseline that is an assertion. With one it is a comparison.
 
@@ -140,7 +142,7 @@ things about that are not true.
   comparison — p95 within 20% of the P0 baseline — is Grafana's against two weeks of telemetry, and
   needs samples this tool does not take.
 - **Concurrency.** Everything here is one request at a time. Every race in
-  [14-testing-strategy.md](../../docs/ecosystem/14-testing-strategy.md) §5 — the chain-keyed
+  [14-testing-strategy.md](https://github.com/cloudsforge-online/micro-docs/blob/main/ecosystem/14-testing-strategy.md) §5 — the chain-keyed
   withdrawal, settlement double-billing, the homestead tile collision — is invisible to it, by
   construction.
 - **Side effects not visible in a response.** A service that returns a correct 200 and writes the
@@ -444,3 +446,10 @@ The scenario shape is deliberately close to Beacon's `defineJourney` — stable 
 that says what breaking looks like to a user, reverse-order cleanup on every exit path, and a skip
 that carries its reason. What it does **not** copy is `assert`: a characterisation recorder has no
 opinion about what a response should say. That is the point.
+
+---
+
+## Provenance
+
+The code in this repository was written by **Claude Opus 5** and **Claude Fable 5**, under
+human direction and review.
