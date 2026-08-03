@@ -18,7 +18,14 @@
 
 import { writeFileSync } from 'node:fs'
 import { relative } from 'node:path'
-import { BASELINE_OPAQUE, MIN_ROUTES, MIN_SERVERS, formatBodyScan, reconcileBodyScan, scanEstate } from './bodyscan.ts'
+import {
+  BASELINE_BLIND_ROUTES,
+  MIN_ROUTES,
+  MIN_SERVERS,
+  formatBodyScan,
+  reconcileBodyScan,
+  scanEstate,
+} from './bodyscan.ts'
 import { compareCorpora } from './compare.ts'
 import type { ComparisonReport, Difference } from './compare.ts'
 import { loadCorpus } from './corpus.ts'
@@ -47,14 +54,13 @@ interface Flags {
    */
   readonly maxUnresolved: number
   /**
-   * For `body-scan`: how many response-body reaches the analyser may fail to open.
+   * For `body-scan`: how many routes in a key-holding service the analyser may fail to fully read.
    *
-   * The same argument as `maxUnresolved`, and it bites harder here. Every unopened reach is a route
-   * whose body this cannot judge, so a budget that drifts upward turns "no route returns key
-   * material" into "no route I could read returns key material" without a single line of the check
-   * changing. The default is today's count.
+   * The same argument as `maxUnresolved`, and it bites harder here. Every route this cannot fully
+   * read turns "no route returns key material" into "no route I could read returns key material"
+   * without a single line of the check changing. The default is today's count.
    */
-  readonly maxOpaque: number
+  readonly maxBlindRoutes: number
 }
 
 function parseFlags(argv: readonly string[]): Flags {
@@ -76,7 +82,7 @@ function parseFlags(argv: readonly string[]): Flags {
     verbose: argv.includes('--verbose'),
     estate: get('estate') ?? '..',
     maxUnresolved: Number(get('max-unresolved') ?? String(BASELINE_UNRESOLVED)),
-    maxOpaque: Number(get('max-opaque') ?? String(BASELINE_OPAQUE)),
+    maxBlindRoutes: Number(get('max-blind-routes') ?? String(BASELINE_BLIND_ROUTES)),
   }
 }
 
@@ -101,7 +107,7 @@ conformance — the CloudsForge characterisation harness
            or when more literals are unresolvable than the budget allows.
            Needs the sibling checkouts on disk; it dials nothing.
 
-  body-scan [--estate ..] [--max-opaque N] [--verbose]
+  body-scan [--estate ..] [--max-blind-routes N] [--verbose]
            Enumerate every route in every service and follow every value that
            reaches a response body. Exits 1 when a route can return private key
            material, when an acknowledged exception no longer exists, when a
@@ -291,7 +297,7 @@ function doLedgerAccounts(flags: Flags): number {
  */
 function doBodyScan(flags: Flags): number {
   const scan = scanEstate({ estateDir: flags.estate })
-  const report = reconcileBodyScan(scan, { maxOpaque: flags.maxOpaque })
+  const report = reconcileBodyScan(scan, { maxBlindRoutes: flags.maxBlindRoutes })
   console.log(formatBodyScan(report, scan))
   console.log('')
 
@@ -310,10 +316,11 @@ function doBodyScan(flags: Flags): number {
         'scan silently did not judge — fix the extractor, never the budget.',
     )
   }
-  if (report.opaque.length > flags.maxOpaque) {
+  if (report.blindRoutes.length > flags.maxBlindRoutes) {
     console.error(
-      `${report.opaque.length} unopenable response-body reaches, budget ${flags.maxOpaque}. ` +
-        'Each one is a value this cannot follow into a body; raise the budget only with a reason.',
+      `${report.blindRoutes.length} routes in a key-holding service could not be fully read, budget ` +
+        `${flags.maxBlindRoutes}. Each one is a response this scan cannot account for, in a service ` +
+        'that has a private key to lose. Open the value, or raise the budget with a reason.',
     )
   }
   console.log(report.ok && !refused ? 'OK — no route in the estate can return key material this scan can identify' : 'FAILED')

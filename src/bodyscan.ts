@@ -397,10 +397,44 @@ export interface Reach {
   /** How it was named where it entered the body — `privateKey`, `…row`, `<returned>`. */
   readonly as: string
   readonly kind: 'field' | 'access' | 'call' | 'literal' | 'row' | 'opaque'
+  /**
+   * The file the value was OBSERVED in, absolute — not the file the route is declared in.
+   *
+   * The two differ constantly and the difference is the whole point of following imports:
+   * identity's JWKS route is declared at `server.ts:750` and the value it returns is built in
+   * `keys.ts:226`. An early version of this module printed the route's file with the value's line
+   * number, producing `identity/src/server.ts:116` for a node in `keys.ts` — a citation that
+   * looks precise and sends the reader to an unrelated import block.
+   */
+  readonly file: string
   readonly line: number
   /** The source text, one line, trimmed. */
   readonly text: string
+  /** For `opaque`: what kind of thing could not be opened. Set only when `kind` is `opaque`. */
+  readonly reason?: OpaqueReason
 }
+
+/**
+ * WHY A VALUE COULD NOT BE FOLLOWED — the taxonomy of this check's blind spot.
+ *
+ * A single "unresolved" count would be true and useless. These four are not the same risk and
+ * lumping them together is how a budget stops meaning anything:
+ *
+ *   * `dep-call`      — a method on an injected dependency, `deps.lifecycle.livez()`. The value is
+ *                       built in a module the route does not name, so nothing about its SHAPE is
+ *                       readable here. The commonest by far, and the one a service's own suite is
+ *                       best placed to judge.
+ *   * `package-call`  — a symbol imported from `@cloudsforge/*` or npm. Outside the repository, and
+ *                       following it would need a module graph across 56 checkouts.
+ *   * `derived`       — a method call on a value the walk DID follow: `row.created_at.toISOString()`.
+ *                       The source field is known and judged; only the transformation is not. Far
+ *                       the commonest and much the weakest of the four, which is exactly why it is
+ *                       separated: 600-odd `toISOString()` calls in one bucket with a handful of
+ *                       genuinely unknown values would hide the handful.
+ *   * `unresolved`    — a local name with no binding this analyser could find.
+ *   * `depth-limit`   — the walk gave up. Always a defect in this analyser, never in the estate.
+ */
+export type OpaqueReason = 'dep-call' | 'package-call' | 'derived' | 'unresolved' | 'depth-limit'
 
 export type Severity = 'material' | 'adjacent' | 'opaque'
 
@@ -411,8 +445,12 @@ export interface Finding {
   readonly method: string
   readonly path: string
   readonly severity: Severity
+  /** Where the ROUTE is declared, `src/server.ts:750`. `file:line` above is where the VALUE is. */
+  readonly declaredAt: string
   /** Which pass fired: the field's name, the value's provenance, or the literal's shape. */
   readonly pass: 'name' | 'provenance' | 'shape' | 'row' | 'unresolved'
+  /** For an opaque finding: why the value could not be opened. */
+  readonly reason?: OpaqueReason
   readonly detail: string
   readonly evidence: string
 }
@@ -434,7 +472,7 @@ const PRODUCER_SET = new Set(PRODUCERS)
  * across 56 checkouts with no shared tsconfig, and a half-followed graph that reported green would
  * be worse than one that says where it stopped.
  */
-class RepoModules {
+export class RepoModules {
   readonly #cache = new Map<string, ts.SourceFile | null>()
   readonly #root: string
 
@@ -476,7 +514,15 @@ class RepoModules {
   }
 }
 
-/** `create table x ( … secret_enc text … )` per repository, reduced to the tables that hold one. */
+/**
+ * `create table x ( … secret_enc text … )` per repository, reduced to the tables that hold one.
+ *
+ * A COLUMN literally named `secret` counts here even though the bare word is not in either tier of
+ * the field vocabulary, and the asymmetry is deliberate. As a response FIELD, `secret` is ambiguous
+ * enough to be noise. As a COLUMN, it is a schema author writing down that this is where the secret
+ * goes — notify/src/migrations.ts:94 and devplatform/src/migrations.ts:297 are both webhook signing
+ * secrets. The stronger signal earns the wider net.
+ */
 export function secretBearingTables(migrationSource: string): Map<string, string[]> {
   const tables = new Map<string, string[]>()
   const create = /create\s+table\s+(?:if\s+not\s+exists\s+)?([a-z0-9_]+)\s*\(([\s\S]*?)\n\s*\)/gi
@@ -487,7 +533,10 @@ export function secretBearingTables(migrationSource: string): Map<string, string
       .map((line) => (/^\s*([a-z0-9_]+)\s+[a-z]/i.exec(line)?.[1] ?? '').toLowerCase())
       .filter((name) => name.length > 0)
     const secret = columns.filter(
-      (name) => MATERIAL_SET.has(canonicalName(name)) || ADJACENT_SET.has(canonicalName(name)),
+      (name) =>
+        MATERIAL_SET.has(canonicalName(name)) ||
+        ADJACENT_SET.has(canonicalName(name)) ||
+        canonicalName(name) === 'secret',
     )
     if (secret.length > 0) tables.set(table, secret)
   }
@@ -498,10 +547,59 @@ interface WalkContext {
   readonly modules: RepoModules
   readonly secretTables: ReadonlyMap<string, readonly string[]>
   readonly reaches: Reach[]
-  readonly visited: Set<ts.Node>
+  /** (node span, position) already walked — see the visitKey in walkValue. */
+  readonly visited: Set<string>
+  /** (line, kind, name) already recorded for THIS route — see `push`. */
+  readonly seen: Set<string>
 }
 
-const MAX_DEPTH = 6
+/**
+ * 14, not 6. The first run against the estate hit the limit 180 times — `admin-api`'s approval
+ * routes nest a projection inside a transaction inside a helper — and every one of those is a body
+ * this analyser gave up on rather than one the estate made unreadable. A depth limit that fires is
+ * a blind spot this module chose for itself, so it is set where the estate stops needing it and its
+ * hits are counted separately from the estate's own opacity.
+ */
+/**
+ * The language's own total functions of their arguments — see the call branch of `walkValue`.
+ *
+ * Deliberately short and deliberately not extensible by pattern: every entry is a function whose
+ * OUTPUT cannot contain anything its INPUT did not, so following the input is following the output.
+ * `JSON.parse` is NOT here — it turns an opaque string into an object of unknown shape, which is
+ * the opposite property.
+ */
+const GLOBAL_COERCIONS = new Set([
+  'Number',
+  'String',
+  'Boolean',
+  'BigInt',
+  'JSON.stringify',
+  'Object.freeze',
+  'Array.from',
+  'structuredClone',
+])
+
+const MAX_DEPTH = 14
+
+/**
+ * WHAT PART OF A VALUE TRAVELS — one level of field sensitivity, and it is not optional.
+ *
+ * `value` — the whole thing lands in the response body. Every field it has travels, so failing to
+ * open it is a real blind spot and is counted.
+ *
+ * `field` — only ONE property of it travels: the `publicJwk` in `key.publicJwk`. A field-INsensitive
+ * walk expands the whole object, and the estate proves within one run why that is useless. identity
+ * publishes its JWKS with `rows.map((r) => r.public_jwk)`, falling back to `getSigningKey(sql)` and
+ * returning `key.publicJwk`. `getSigningKey` returns `{ kid, privateKey, publicJwk }` — so a walk
+ * that opens the whole record reports GET /.well-known/jwks.json, the most deliberately public route
+ * in the estate, as returning a private key. That finding is false, it is the loudest one the first
+ * run produced, and a check whose flagship finding is false is a check that gets deleted.
+ *
+ * Carrying the accessed name costs one field on this type and removes the entire class.
+ */
+export type Position = { readonly via: 'value' } | { readonly via: 'field'; readonly name: string }
+
+const VALUE: Position = { via: 'value' }
 
 function lineOf(node: ts.Node): number {
   const tree = node.getSourceFile()
@@ -616,48 +714,76 @@ function returnedExpressions(fn: ts.FunctionLikeDeclaration): ts.Expression[] {
  * both sides of `??`, every element of an array, every return of a resolved function. A value that
  * reaches the body on ANY path is a value that reaches the body.
  */
-function walkValue(context: WalkContext, node: ts.Expression, label: string, depth: number): void {
+export function walkValue(
+  context: WalkContext,
+  node: ts.Expression,
+  label: string,
+  depth: number,
+  position: Position = VALUE,
+): void {
   if (depth > MAX_DEPTH) {
-    context.reaches.push({ as: label, kind: 'opaque', line: lineOf(node), text: `depth limit: ${textOf(node)}` })
+    push(context, { as: label, kind: 'opaque', reason: 'depth-limit', ...where(node) })
     return
   }
   const expression = unwrap(node)
-  if (context.visited.has(expression)) return
-  context.visited.add(expression)
+  // Keyed by FILE, node span and position, and each of the three earns its place.
+  //
+  // Position, because `toRecord(row)` reached as a whole body and reached as `.id` are different
+  // questions about the same node and answering only the first drops the second.
+  //
+  // File, because `pos`/`end` are offsets into ONE source file and collide freely across files —
+  // and the collision is silent and total. Without it, walking custody's redeem route stopped at a
+  // node in `exports.ts` whose offsets happened to match one already seen in `server.ts`, so the
+  // object literal carrying `material` and `derivationPath` was never opened and the route the whole
+  // acknowledgement list exists for reported nothing. That is the exact failure this module is meant
+  // to catch in other people's code.
+  const visitKey = `${expression.getSourceFile().fileName}:${expression.pos}:${expression.end}:${
+    position.via === 'field' ? position.name : ''
+  }`
+  if (context.visited.has(visitKey)) return
+  context.visited.add(visitKey)
 
   if (ts.isObjectLiteralExpression(expression)) {
     for (const property of expression.properties) {
       if (ts.isSpreadAssignment(property)) {
-        walkValue(context, property.expression, `…${label}`, depth + 1)
+        // A spread supplies whatever the position asks for, and in VALUE position it supplies every
+        // field the spread value has — named or not. It carries the position through unchanged.
+        walkValue(context, property.expression, `…${label}`, depth + 1, position)
         continue
       }
+      const name = ts.isShorthandPropertyAssignment(property)
+        ? property.name.text
+        : ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+          ? property.name.text
+          : ts.isPropertyAssignment(property)
+            ? '<computed>'
+            : null
+      if (name === null) continue
+      // In field position only the requested property travels. Everything else on this object is
+      // not on the wire and must not be judged as if it were.
+      if (position.via === 'field' && position.name !== name) continue
+      push(context, { as: name, kind: 'field', ...where(property) })
       if (ts.isShorthandPropertyAssignment(property)) {
-        const name = property.name.text
-        context.reaches.push({ as: name, kind: 'field', line: lineOf(property), text: textOf(property) })
         const bound = nearestBinding(property, name)
         if (bound) walkValue(context, bound, name, depth + 1)
         continue
       }
-      if (!ts.isPropertyAssignment(property)) continue
-      const name =
-        ts.isIdentifier(property.name) || ts.isStringLiteral(property.name) ? property.name.text : '<computed>'
-      context.reaches.push({ as: name, kind: 'field', line: lineOf(property), text: textOf(property) })
-      walkValue(context, property.initializer, name, depth + 1)
+      if (ts.isPropertyAssignment(property)) walkValue(context, property.initializer, name, depth + 1)
     }
     return
   }
 
   if (ts.isArrayLiteralExpression(expression)) {
     for (const element of expression.elements) {
-      if (ts.isSpreadElement(element)) walkValue(context, element.expression, label, depth + 1)
-      else walkValue(context, element, label, depth + 1)
+      if (ts.isSpreadElement(element)) walkValue(context, element.expression, label, depth + 1, position)
+      else walkValue(context, element, label, depth + 1, position)
     }
     return
   }
 
   if (ts.isConditionalExpression(expression)) {
-    walkValue(context, expression.whenTrue, label, depth + 1)
-    walkValue(context, expression.whenFalse, label, depth + 1)
+    walkValue(context, expression.whenTrue, label, depth + 1, position)
+    walkValue(context, expression.whenFalse, label, depth + 1, position)
     return
   }
 
@@ -668,46 +794,52 @@ function walkValue(context: WalkContext, node: ts.Expression, label: string, dep
       operator === ts.SyntaxKind.BarBarToken ||
       operator === ts.SyntaxKind.AmpersandAmpersandToken
     ) {
-      walkValue(context, expression.left, label, depth + 1)
-      walkValue(context, expression.right, label, depth + 1)
-      return
+      walkValue(context, expression.left, label, depth + 1, position)
+      walkValue(context, expression.right, label, depth + 1, position)
     }
+    return
   }
 
-  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression) || ts.isTemplateExpression(expression)) {
-    context.reaches.push({ as: label, kind: 'literal', line: lineOf(expression), text: textOf(expression) })
+  if (
+    ts.isStringLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression) ||
+    ts.isTemplateExpression(expression)
+  ) {
+    push(context, { as: label, kind: 'literal', ...where(expression) })
     return
   }
 
   if (ts.isTaggedTemplateExpression(expression)) {
-    // `sql`select … from custody_keys``. The table, not the value, is what can be judged.
-    context.reaches.push({ as: label, kind: 'row', line: lineOf(expression), text: textOf(expression) })
+    // `sql\`select … from custody_keys\``. Recorded ONLY in value position, where the whole row goes
+    // on the wire. In field position a single column travels and the access pass has already read
+    // its name — `row.private_jwk_enc` is caught as a name, and reporting the row as well would
+    // make every projection off a wide table a leak.
+    if (position.via === 'value') push(context, { as: label, kind: 'row', ...where(expression) })
     return
   }
 
   if (ts.isPropertyAccessExpression(expression)) {
-    context.reaches.push({
-      as: expression.name.text,
-      kind: 'access',
-      line: lineOf(expression),
-      text: textOf(expression),
-    })
-    walkValue(context, expression.expression, label, depth + 1)
+    push(context, { as: expression.name.text, kind: 'access', ...where(expression) })
+    walkValue(context, expression.expression, label, depth + 1, { via: 'field', name: expression.name.text })
     return
   }
 
   if (ts.isElementAccessExpression(expression)) {
     const index = literalString(expression.argumentExpression)
     if (index !== null) {
-      context.reaches.push({ as: index, kind: 'access', line: lineOf(expression), text: textOf(expression) })
+      push(context, { as: index, kind: 'access', ...where(expression) })
+      walkValue(context, expression.expression, label, depth + 1, { via: 'field', name: index })
+      return
     }
-    walkValue(context, expression.expression, label, depth + 1)
+    // `rows[0]` — an ELEMENT, not a field. The element is whatever the position asked of the array,
+    // so the position is carried through rather than reset.
+    walkValue(context, expression.expression, label, depth + 1, position)
     return
   }
 
   if (ts.isCallExpression(expression)) {
     const { name, receiver } = calleeName(expression.expression)
-    context.reaches.push({ as: name, kind: 'call', line: lineOf(expression), text: textOf(expression) })
+    push(context, { as: name, kind: 'call', ...where(expression) })
     if (
       PRODUCER_SET.has(canonicalName(name)) ||
       RECEIVER_PRODUCERS.some(([r, m]) => canonicalName(receiver).includes(r) && canonicalName(name) === m)
@@ -719,65 +851,179 @@ function walkValue(context: WalkContext, node: ts.Expression, label: string, dep
     // THE RECEIVER IS DELIBERATELY NOT FOLLOWED. `rows.map(toKeyRecord)` puts the PROJECTION on the
     // wire, not the row, and the whole point of a projection is that the columns it leaves out do
     // not travel. Following `rows` as well made the first run against the estate report three
-    // `select *` rows as leaks when what reached the body was nine named fields — and a check whose
-    // first three findings are wrong is a check nobody reads the fourth finding of. A callback this
-    // cannot resolve is still an OPAQUE reach, so a projection through an unreadable function is
-    // counted rather than assumed clean.
+    // `select *` queries as leaks when what reached the body was nine named fields — and a check
+    // whose first three findings are wrong is a check nobody reads the fourth finding of. A callback
+    // this cannot resolve is still an opaque reach, so a projection through an unreadable function
+    // is counted rather than assumed clean.
     if (canonicalName(name) === 'map' || canonicalName(name) === 'flatmap') {
       for (const argument of expression.arguments) {
         const callback = unwrap(argument)
         if (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) {
-          for (const returned of returnedExpressions(callback)) walkValue(context, returned, label, depth + 1)
+          for (const returned of returnedExpressions(callback)) walkValue(context, returned, label, depth + 1, position)
         } else if (ts.isIdentifier(callback)) {
           const fn = resolveFunction(context, expression, callback.text)
-          if (fn) for (const returned of returnedExpressions(fn)) walkValue(context, returned, label, depth + 1)
-          else context.reaches.push({ as: callback.text, kind: 'opaque', line: lineOf(expression), text: textOf(expression) })
+          if (fn) for (const returned of returnedExpressions(fn)) walkValue(context, returned, label, depth + 1, position)
+          else if (position.via === 'value') {
+            push(context, {
+              as: callback.text,
+              kind: 'opaque',
+              reason: reasonFor(expression, callback.text, ''),
+              ...where(expression),
+            })
+          }
         }
       }
       return
     }
-    const fn = resolveFunction(context, expression, name)
-    if (fn) {
-      for (const returned of returnedExpressions(fn)) walkValue(context, returned, label, depth + 1)
+    // A GLOBAL COERCION. `Number(row.max_units)`, `String(x)`, `JSON.stringify(page)` — a total
+    // function of its argument, from the language rather than from this estate. Nothing about the
+    // result is unknown that is not already known about the argument, so the argument is walked
+    // and the call is not counted as a blind spot. Eleven routes in devplatform and identity were
+    // in the blind list for `Number(...)` alone, which is a blind-spot count measuring this
+    // analyser's vocabulary rather than the estate's opacity.
+    if (GLOBAL_COERCIONS.has(name) || GLOBAL_COERCIONS.has(`${receiver}.${name}`)) {
+      for (const argument of expression.arguments) walkValue(context, argument, label, depth + 1)
       return
     }
-    // A call this analyser cannot open. Named and counted — never dropped.
-    context.reaches.push({ as: name || '<anonymous call>', kind: 'opaque', line: lineOf(expression), text: textOf(expression) })
+    const fn = resolveFunction(context, expression, name)
+    if (fn) {
+      for (const returned of returnedExpressions(fn)) walkValue(context, returned, label, depth + 1, position)
+      return
+    }
+    // A call this analyser cannot open. In VALUE position that is a body whose shape is unknown and
+    // it is counted; in FIELD position the property taken off it has already been named and judged.
+    if (position.via === 'value') {
+      const reason = reasonFor(expression, name, receiver)
+      push(context, { as: name || '<anonymous call>', kind: 'opaque', reason, ...where(expression) })
+      // A METHOD on a value that is not a dependency — `row.created_at.toISOString()`. The result is
+      // unknown, so it is still counted, but the RECEIVER is followed: what the transformation was
+      // applied to is exactly what a reader needs to judge whether the output could be a key, and
+      // `created_at` is judged by the name pass the moment the receiver is walked.
+      if (reason === 'derived') {
+        const callee = unwrap(expression.expression)
+        if (ts.isPropertyAccessExpression(callee)) walkValue(context, callee.expression, label, depth + 1)
+      }
+    }
     return
   }
 
   if (ts.isIdentifier(expression)) {
     const bound = nearestBinding(expression, expression.text)
     if (bound && bound !== expression) {
-      walkValue(context, bound, expression.text, depth + 1)
+      walkValue(context, bound, expression.text, depth + 1, position)
       return
     }
     const fn = resolveFunction(context, expression, expression.text)
     if (fn) {
-      for (const returned of returnedExpressions(fn)) walkValue(context, returned, label, depth + 1)
+      for (const returned of returnedExpressions(fn)) walkValue(context, returned, label, depth + 1, position)
       return
     }
-    context.reaches.push({ as: expression.text, kind: 'opaque', line: lineOf(expression), text: textOf(expression) })
+    if (position.via === 'value') {
+      push(context, {
+        as: expression.text,
+        kind: 'opaque',
+        reason: reasonFor(expression, expression.text, ''),
+        ...where(expression),
+      })
+    }
     return
   }
 
   if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) {
-    for (const returned of returnedExpressions(expression)) walkValue(context, returned, label, depth + 1)
+    for (const returned of returnedExpressions(expression)) walkValue(context, returned, label, depth + 1, position)
     return
   }
 
   if (
     ts.isNumericLiteral(expression) ||
+    ts.isBigIntLiteral(expression) ||
     expression.kind === ts.SyntaxKind.TrueKeyword ||
     expression.kind === ts.SyntaxKind.FalseKeyword ||
     expression.kind === ts.SyntaxKind.NullKeyword ||
-    ts.isNewExpression(expression)
+    expression.kind === ts.SyntaxKind.ThisKeyword ||
+    ts.isNewExpression(expression) ||
+    ts.isTypeOfExpression(expression) ||
+    ts.isPrefixUnaryExpression(expression) ||
+    ts.isObjectBindingPattern(expression as unknown as ts.Node as ts.Expression)
   ) {
     return
   }
 
-  context.reaches.push({ as: label, kind: 'opaque', line: lineOf(expression), text: textOf(expression) })
+  if (position.via === 'value') {
+    push(context, { as: label, kind: 'opaque', reason: 'unresolved', ...where(expression) })
+  }
 }
+
+/** Where a node is: its own file and line, never the route's. */
+function where(node: ts.Node): { file: string; line: number; text: string } {
+  const tree = node.getSourceFile()
+  return {
+    file: tree.fileName,
+    line: tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1,
+    text: textOf(node),
+  }
+}
+
+/**
+ * One reach, deduplicated on (file, line, kind, name), per route.
+ *
+ * A projection reached from four routes would otherwise report the same field four times, and the
+ * first run against the estate did exactly that: nine identical `derivationPath` findings from one
+ * function. Deduplication is per ROUTE, so two routes reaching the same field are still two
+ * findings — they are two routes, and the DoD's claim is about routes.
+ */
+function push(context: WalkContext, reach: Reach): void {
+  const key = `${reach.file}|${reach.line}|${reach.kind}|${reach.as}`
+  if (context.seen.has(key)) return
+  context.seen.add(key)
+  context.reaches.push(reach)
+}
+
+/**
+ * Why a name could not be opened: an injected dependency, a package, or a local nothing binds.
+ *
+ * `deps.x.y()` is the estate's dependency-injection spelling in all twenty-nine servers, so a
+ * receiver rooted at `deps` is a `dep-call` and nothing else. An identifier the file imports from a
+ * non-relative specifier is a `package-call`. Everything else is a local this analyser lost.
+ */
+function reasonFor(at: ts.Node, name: string, receiver: string): OpaqueReason {
+  if (receiver === 'deps' || rootedAtDeps(at)) return 'dep-call'
+  void receiver
+  const tree = at.getSourceFile()
+  for (const statement of tree.statements) {
+    if (!ts.isImportDeclaration(statement)) continue
+    const specifier = literalString(statement.moduleSpecifier as ts.Expression)
+    if (specifier === null || specifier.startsWith('.')) continue
+    const bindings = statement.importClause?.namedBindings
+    if (bindings && ts.isNamedImports(bindings) && bindings.elements.some((e) => e.name.text === name)) {
+      return 'package-call'
+    }
+    if (statement.importClause?.name?.text === name) return 'package-call'
+  }
+  if (ts.isCallExpression(at) && ts.isPropertyAccessExpression(unwrap(at.expression))) return 'derived'
+  return 'unresolved'
+}
+
+function rootedAtDeps(node: ts.Node): boolean {
+  let current: ts.Node = node
+  for (let guard = 0; guard < 12; guard += 1) {
+    if (ts.isIdentifier(current)) return current.text === 'deps' || current.text === 'ctx'
+    if (
+      ts.isPropertyAccessExpression(current) ||
+      ts.isElementAccessExpression(current) ||
+      ts.isCallExpression(current) ||
+      ts.isAwaitExpression(current) ||
+      ts.isNonNullExpression(current) ||
+      ts.isParenthesizedExpression(current)
+    ) {
+      current = current.expression
+      continue
+    }
+    return false
+  }
+  return false
+}
+
 
 /**
  * Every `body:`/`text:` expression a handler can reply with.
@@ -787,7 +1033,7 @@ function walkValue(context: WalkContext, node: ts.Expression, label: string, dep
  * depth inside the handler are collected, including inside `sql.begin(async () => …)` and
  * `.then(…)`, because a reply built in a nested closure is still the reply.
  */
-function replyBodies(handler: ts.Node): ts.Expression[] {
+export function replyBodies(handler: ts.Node): ts.Expression[] {
   const out: ts.Expression[] = []
   const visit = (node: ts.Node): void => {
     if (ts.isObjectLiteralExpression(node) && hasProperty(node, 'status')) {
@@ -815,6 +1061,20 @@ export interface EstateScan {
   /** Repositories with a `server.ts` whose route table yielded nothing. FATAL. */
   readonly unreadable: readonly UnreadableRoutes[]
   readonly filesRead: number
+  /** Deliberately not read, and why the caller can see it. */
+  readonly excluded: readonly string[]
+  /**
+   * The services that HOLD key material, derived from the checkout rather than written down.
+   *
+   * A service with no secret-bearing column and no vault module has no private key to leak, so an
+   * unreadable body in it is a gap in this analyser and not a gap in the estate's key hygiene. This
+   * list is what lets the report say which of the two a blind spot is, and it is DERIVED — from a
+   * secret-bearing column in `migrations.ts` or a `vault.ts`/`keyring.ts`/`keyEnvelope.ts` module —
+   * for the same reason estate-ci derives its repository list from the API: micro-org's own
+   * hand-written registry did not contain micro-emberkin, one of the three repositories the account
+   * defect was actually in.
+   */
+  readonly holdsKeyMaterial: readonly string[]
   /**
    * The acknowledgements that actually matched something. Carried on the RESULT rather than kept in
    * a module-level set, so scanning two estates in one process cannot make the second one's stale
@@ -886,6 +1146,7 @@ export function scanEstate(options: ScanOptions): EstateScan {
   const services: string[] = []
   const unreadable: UnreadableRoutes[] = []
   const acknowledged = new Set<Acknowledgement>()
+  const holdsKeyMaterial: string[] = []
   let filesRead = 0
 
   let repos: string[]
@@ -914,6 +1175,12 @@ export function scanEstate(options: ScanOptions): EstateScan {
       migrations = ''
     }
     const secretTables = secretBearingTables(migrations)
+    // Structural evidence, not a word match: a table column that holds a secret, or a module whose
+    // whole job is holding one. Matching the vocabulary against source text would make every
+    // repository "key-holding", because `material` is an English word and half the estate's comments
+    // use it.
+    const vaultModule = files.some((file) => /\/(vault|keyring|keyEnvelope|keys)\.ts$/.test(file))
+    if (secretTables.size > 0 || vaultModule) holdsKeyMaterial.push(repo)
 
     let repoRoutes = 0
     let declaresRouteTable = false
@@ -951,9 +1218,9 @@ export function scanEstate(options: ScanOptions): EstateScan {
       routes.push(...handlers.map((handler) => handler.route))
 
       for (const handler of handlers) {
-        const context: WalkContext = { modules, secretTables, reaches: [], visited: new Set<ts.Node>() }
+        const context: WalkContext = { modules, secretTables, reaches: [], visited: new Set<string>(), seen: new Set<string>() }
         for (const body of replyBodies(handler.body)) walkValue(context, body, '<body>', 0)
-        for (const finding of judge(handler.route, context, acknowledged)) {
+        for (const finding of judge(handler.route, repoRoot, context, acknowledged)) {
           if (finding.severity === 'opaque') opaque.push(finding)
           else findings.push(finding)
         }
@@ -973,7 +1240,17 @@ export function scanEstate(options: ScanOptions): EstateScan {
     services.push(repo)
   }
 
-  return { routes, findings, opaque, services, unreadable, filesRead, acknowledged: [...acknowledged] }
+  return {
+    routes,
+    findings,
+    opaque,
+    services,
+    unreadable,
+    filesRead,
+    excluded,
+    holdsKeyMaterial,
+    acknowledged: [...acknowledged],
+  }
 }
 
 
@@ -1016,12 +1293,14 @@ export const ACKNOWLEDGED: readonly Acknowledgement[] = Object.freeze([
     service: 'custody',
     method: 'POST',
     path: '/v1/exports/:id/redeem',
-    field: 'derivationpath',
+    field: 'materialise',
     because:
-      'custody/src/exports.ts:450 argues this one explicitly: the derivation path is omitted from the ' +
-      'EVENT and returned in the RESPONSE, "because the user restoring a phrase needs it — a response ' +
-      'goes to one authenticated user, an event goes to subscribers". Same request, same gates as the ' +
-      'material beside it.',
+      'The provenance pass on the same route: `materialise()` (custody/src/exports.ts:408) is the one ' +
+      'function in the estate that produces plaintext, and `redeemExport` is its one caller — a fact ' +
+      'custody asserts for itself at bodyscan.test.ts:361. Acknowledged SEPARATELY from the field ' +
+      'above rather than by exempting the route, because the two passes prove different things: one ' +
+      'that the field named `material` is on the wire, one that the value came from the decryptor. A ' +
+      'route-level exemption would have silently covered a second, unrelated leak on the same route.',
   },
   {
     service: 'custody',
@@ -1037,8 +1316,14 @@ export const ACKNOWLEDGED: readonly Acknowledgement[] = Object.freeze([
   },
 ])
 
-/** How many response-body reaches the analyser may fail to resolve before the sweep fails. */
-export const BASELINE_OPAQUE = 0
+/**
+ * How many routes in a key-holding service this scan may fail to fully read.
+ *
+ * Today's count, so the FIRST new one has to be looked at. Lowering it is progress — every step
+ * down is a route whose response is now accounted for — and raising it is a decision somebody makes
+ * on purpose, in this file, with a reason. It is NOT a knob for getting a red run green.
+ */
+export const BASELINE_BLIND_ROUTES = 42
 
 function acknowledgementFor(route: RouteRef, field: string): Acknowledgement | undefined {
   return ACKNOWLEDGED.find(
@@ -1051,9 +1336,24 @@ function acknowledgementFor(route: RouteRef, field: string): Acknowledgement | u
 }
 
 /** Turn one route's observed reaches into findings, marking any acknowledgement it used. */
-function judge(route: RouteRef, context: WalkContext, used: Set<Acknowledgement>): Finding[] {
+function judge(
+  route: RouteRef,
+  repoRoot: string,
+  context: WalkContext,
+  used: Set<Acknowledgement>,
+): Finding[] {
   const out: Finding[] = []
-  const at = (reach: Reach) => ({ service: route.service, file: route.file, line: reach.line, method: route.method, path: route.path })
+  // The finding cites the file the VALUE is in, which is routinely not the file the route is
+  // declared in — see `Reach.file`. `declaredAt` keeps the route's own site, so a reader can open
+  // both ends of the reach.
+  const at = (reach: Reach) => ({
+    service: route.service,
+    file: relative(repoRoot, reach.file),
+    line: reach.line,
+    method: route.method,
+    path: route.path,
+    declaredAt: `${route.file}:${route.line}`,
+  })
 
   for (const reach of context.reaches) {
     const canonical = canonicalName(reach.as)
@@ -1114,9 +1414,16 @@ function judge(route: RouteRef, context: WalkContext, used: Set<Acknowledgement>
     }
 
     if (reach.kind === 'row') {
-      const table = /from\s+([a-z0-9_]+)/i.exec(reach.text)?.[1]?.toLowerCase()
+      // THE SELECT LIST, NEVER THE WHOLE QUERY. identity's refresh rotation reads
+      // `select user_id, session_id, … from refresh_tokens where token_hash = \${tokenHash}` — the
+      // secret column is in the WHERE clause, which is an argument to the query and not a column it
+      // returns. Matching the whole text reported that route as a leak on the first run. What a row
+      // carries is exactly what is between `select` and `from`.
+      const query = /select\s+([\s\S]*?)\sfrom\s+([a-z0-9_]+)/i.exec(reach.text)
+      const selected = query?.[1] ?? ''
+      const table = query?.[2]?.toLowerCase()
       const columns = table ? context.secretTables.get(table) : undefined
-      if (columns && (reach.text.includes('*') || columns.some((c) => reach.text.includes(c)))) {
+      if (columns && (selected.includes('*') || columns.some((c) => new RegExp(`\\b${c}\\b`).test(selected)))) {
         out.push({
           ...at(reach),
           severity: 'material',
@@ -1133,6 +1440,7 @@ function judge(route: RouteRef, context: WalkContext, used: Set<Acknowledgement>
         ...at(reach),
         severity: 'opaque',
         pass: 'unresolved',
+        reason: reach.reason ?? 'unresolved',
         detail: `the response body reaches '${reach.as}', which this analyser cannot open`,
         evidence: reach.text,
       })
@@ -1145,31 +1453,84 @@ function judge(route: RouteRef, context: WalkContext, used: Set<Acknowledgement>
 // Reconciliation and report
 // ---------------------------------------------------------------------------
 
+/** A route in a key-holding service whose body this scan could not fully read. */
+export interface BlindRoute {
+  readonly service: string
+  readonly method: string
+  readonly path: string
+  readonly reasons: readonly OpaqueReason[]
+}
+
 export interface BodyScanReport {
   readonly violations: readonly Finding[]
   readonly opaque: readonly Finding[]
   /** Acknowledgements that matched no route — a standing permission for something that is gone. */
   readonly staleAcknowledgements: readonly Acknowledgement[]
+  /**
+   * THE NUMBER THE GATE IS ON, and the reason it is this one rather than the raw opaque count.
+   *
+   * The raw count is ~940 and rises every time anybody adds a route, so a budget on it is a budget
+   * somebody raises weekly until it means nothing — the exact life cycle this estate keeps
+   * rediscovering. This is instead a count of ROUTES, in the services that actually hold key
+   * material, where at least one value reaching the body could not be opened AND the reason was not
+   * `derived` (a transformation of a field this scan did read and did judge).
+   *
+   * It is small, it is stable, it is meaningful in one sentence — "there are N routes in custody,
+   * identity and devplatform whose response this cannot fully account for" — and every one of them
+   * is printed by name. A service that grows a vault joins the numerator automatically.
+   */
+  readonly blindRoutes: readonly BlindRoute[]
   readonly ok: boolean
 }
 
 export function reconcileBodyScan(
   scan: EstateScan,
-  options: { readonly maxOpaque?: number } = {},
+  options: { readonly maxBlindRoutes?: number } = {},
 ): BodyScanReport {
-  const maxOpaque = options.maxOpaque ?? BASELINE_OPAQUE
+  const maxBlindRoutes = options.maxBlindRoutes ?? BASELINE_BLIND_ROUTES
   const used = new Set(scan.acknowledged)
   const stale = ACKNOWLEDGED.filter((entry) => !used.has(entry))
+
+  const blind = new Map<string, BlindRoute>()
+  for (const finding of scan.opaque) {
+    if (!scan.holdsKeyMaterial.includes(finding.service)) continue
+    if (finding.reason === 'derived') continue
+    const key = `${finding.service} ${finding.method} ${finding.path}`
+    const existing = blind.get(key)
+    const reason = finding.reason ?? 'unresolved'
+    if (existing) {
+      if (!existing.reasons.includes(reason)) {
+        blind.set(key, { ...existing, reasons: [...existing.reasons, reason] })
+      }
+      continue
+    }
+    blind.set(key, { service: finding.service, method: finding.method, path: finding.path, reasons: [reason] })
+  }
+  const blindRoutes = [...blind.values()]
+
   return {
     violations: scan.findings,
     opaque: scan.opaque,
     staleAcknowledgements: stale,
+    blindRoutes,
     ok:
       scan.findings.length === 0 &&
       scan.unreadable.length === 0 &&
       stale.length === 0 &&
-      scan.opaque.length <= maxOpaque,
+      blindRoutes.length <= maxBlindRoutes,
   }
+}
+
+/**
+ * The report a human reads, and the one CI prints.
+ *
+ * THE BLIND SPOT IS PART OF THE REPORT, NOT A FOOTNOTE TO IT. A body scan that prints "no route
+ * returns key material" and nothing else invites exactly the belief this module exists to prevent —
+ * that the class is closed. So every run prints, above the verdict, how much of the route surface it
+ * could actually read, broken down by why it could not read the rest.
+ */
+function keyHoldingRoutes(scan: EstateScan): number {
+  return scan.routes.filter((route) => scan.holdsKeyMaterial.includes(route.service)).length
 }
 
 export function formatBodyScan(report: BodyScanReport, scan: EstateScan): string {
@@ -1178,10 +1539,14 @@ export function formatBodyScan(report: BodyScanReport, scan: EstateScan): string
     `scanned ${scan.services.length} servers, ${scan.filesRead} files, ${scan.routes.length} routes`,
   )
   lines.push(`  ${scan.services.join(' ')}`)
+  if (scan.excluded.length > 0) lines.push(`  not read: ${scan.excluded.join(' ')}`)
   lines.push('')
 
   for (const entry of scan.unreadable) {
-    lines.push(`UNREADABLE    ${entry.service}/${entry.file} — ${entry.why}`)
+    lines.push(
+      `UNREADABLE    ${entry.service}/${entry.file} — ${entry.why}` +
+        '\n    Every route in that table is a route this scan did not judge and did not say so.',
+    )
   }
 
   if (report.violations.length === 0) {
@@ -1189,8 +1554,9 @@ export function formatBodyScan(report: BodyScanReport, scan: EstateScan): string
   }
   for (const finding of report.violations) {
     lines.push(
-      `${finding.severity === 'material' ? 'LEAK' : 'ADJACENT'}          ${finding.method} ${finding.path}  (${finding.pass})` +
-        `\n    ${finding.service}/${finding.file}:${finding.line}` +
+      `${finding.severity === 'material' ? 'LEAK    ' : 'ADJACENT'}      ${finding.method} ${finding.path}  (${finding.pass})` +
+        `\n    route      ${finding.service}/${finding.declaredAt}` +
+        `\n    value      ${finding.service}/${finding.file}:${finding.line}` +
         `\n    ${finding.detail}` +
         `\n    ${finding.evidence}`,
     )
@@ -1198,15 +1564,41 @@ export function formatBodyScan(report: BodyScanReport, scan: EstateScan): string
 
   for (const entry of report.staleAcknowledgements) {
     lines.push(
-      `STALE         ${entry.service} ${entry.method} ${entry.path} may return '${entry.field}', and no such ` +
-        'route exists in this checkout. A standing permission for something that is gone.',
+      `STALE         ${entry.service} ${entry.method} ${entry.path} is acknowledged to return '${entry.field}', ` +
+        'and nothing in this checkout does.' +
+        '\n    A standing permission for something that is gone, or a route this scan stopped reading.' +
+        '\n    Delete the acknowledgement, or find out which of the two it is.',
     )
   }
 
   lines.push('')
-  lines.push(`${report.opaque.length} response-body reaches this analyser could not open:`)
+  lines.push(`WHAT THIS RUN COULD NOT READ — ${report.opaque.length} response-body reaches over ${scan.routes.length} routes`)
+  const byReason = new Map<string, Finding[]>()
   for (const finding of report.opaque) {
-    lines.push(`    ${finding.service}/${finding.file}:${finding.line}  ${finding.method} ${finding.path}  ${finding.evidence}`)
+    const reason = finding.reason ?? 'unresolved'
+    const bucket = byReason.get(reason)
+    if (bucket) bucket.push(finding)
+    else byReason.set(reason, [finding])
+  }
+  for (const [reason, group] of [...byReason].sort((a, b) => b[1].length - a[1].length)) {
+    const services = [...new Set(group.map((f) => f.service))].sort()
+    lines.push(`  ${reason.padEnd(13)} ${String(group.length).padStart(4)}   ${services.join(' ')}`)
+  }
+  lines.push('')
+  lines.push(
+    `THE GATE IS ON THIS NUMBER — ${report.blindRoutes.length} of the ${keyHoldingRoutes(scan)} routes in the ${scan.holdsKeyMaterial.length} services` +
+      `\n  that HOLD key material (${scan.holdsKeyMaterial.join(' ')}) have a response this scan` +
+      '\n  cannot fully account for. A `derived` reach does not count — the field it transforms was' +
+      '\n  read and judged. Everything else does, because a value this cannot open in a service with' +
+      '\n  a private key to lose is precisely the hole a green run would otherwise hide.',
+  )
+  for (const route of report.blindRoutes) {
+    lines.push(`  ${route.service}  ${route.method} ${route.path}  [${route.reasons.join(' ')}]`)
+    for (const finding of report.opaque) {
+      if (finding.service !== route.service || finding.method !== route.method) continue
+      if (finding.path !== route.path || finding.reason === 'derived') continue
+      lines.push(`      ${finding.file}:${finding.line}  ${finding.evidence}`)
+    }
   }
   return lines.join('\n')
 }
