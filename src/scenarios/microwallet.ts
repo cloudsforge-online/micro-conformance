@@ -8,31 +8,43 @@
  * suites exist and neither is pointed at the other's estate — see the `micro-wallet` row in
  * `env.ts` for why merging them would manufacture a pass out of six stable 404s.
  *
- * **Reads only. No money moves, and nothing is provisioned.** Stronger than `wallet`'s limit,
- * which allows the find-or-create deposit address, and the difference is not caution — see below.
+ * **Reads, plus the find-or-create deposit address — which is exactly `wallet`'s limit.** No money
+ * moves. Nothing else is provisioned.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════════
- * **WHY `POST /v1/deposits` IS NOT RECORDED HERE, ALTHOUGH IT IS THE MOST VALUABLE INTERACTION
- * THE LEGACY SUITE HAS.**
+ * **THE EXCLUSION OF `POST /v1/deposits` IS GONE, AND ITS REMOVAL IS THE POINT OF THIS HEADER.**
  *
- * Because on this estate it is **broken**, and a baseline is the thing later runs are compared
- * against — so recording it would make the defect the contract and make its repair read as a
- * breaking difference. Measured 2026-08-04, authenticated, through the gateway:
+ * What stood here, until 2026-08-04, was right at the time and is worth restating rather than
+ * deleting, because the reasoning is the reusable part:
  *
- *   POST /v1/deposits {"assetCode":"EMBER"}  →  500 {"error":{"code":"internal"}}
+ *   > Because on this estate it is broken, and a baseline is the thing later runs are compared
+ *   > against — so recording it would make the defect the contract and make its repair read as a
+ *   > breaking difference. Measured 2026-08-04, authenticated, through the gateway:
+ *   > `POST /v1/deposits {"assetCode":"EMBER"}` → `500 {"error":{"code":"internal"}}`.
  *
- * and wallet's own log names the cause: `CustodyRefusedError: POST http://custody:4000/v1/addresses
- * → 400`, thrown at `wallet/src/custodyclient.ts:153` and caught by nothing — the class appears in
- * `wallet/src` three times, all three inside `custodyclient.ts`, so it reaches the generic handler
- * and a peer-decided 4xx is served to the caller as an internal error.
+ * **The route was then repaired, and an exclusion has no way of noticing that.** Wallet was not
+ * sending the `orderId` custody requires; it now sends the deposit assignment's own id
+ * (`wallet/src/deposits.ts`, the block above `custody.createAddress`). Re-measured before this was
+ * removed, through the gateway with a throwaway account's own token:
  *
- * That is two defects in one response and neither is this harness's to fix. What this harness owes
- * them is not to freeze either one into a golden file.
+ *   POST /v1/deposits {"assetCode":"EMBER"}  →  201, an assignment with an address, a walletId,
+ *                                                a custodyKeyUrn naming that address, status
+ *                                                "active" and a non-null watchedAt.
  *
- * The route is still characterised, by the half of it that is deterministic and correct:
- * `POST /v1/deposits` with an asset that does not settle on a chain answers **400
- * `not_depositable`** without ever reaching custody. That records the refusal, the error code and
- * the auth requirement of the write path, and it records nothing that is currently broken.
+ * That is the whole shape of the hazard this file now records against: **an exclusion written for
+ * a true reason outlives the reason, and nothing about the repair touches the file that excluded
+ * it.** The estate got better and the corpus got quieter, and the two were unrelated events. Every
+ * suite here that names a defect as its reason for not recording something carries the same risk.
+ *
+ * **And a recording is not evidence.** Nothing below asserts that the estate is correct — this is
+ * a characterisation harness and it has no opinion. What the golden files are is the thing the
+ * NEXT run is evidence against. The estate was checked for degradation before this was recorded,
+ * because a baseline of a degraded estate makes the degradation the contract: `GET /v1/portfolio`
+ * answered `degraded: []`, which is micro-wallet's own statement that it could read every source
+ * it depends on.
+ *
+ * The refusal half stays recorded and is now the thing that keeps the happy path honest: a route
+ * that answered 201 to everything would satisfy the provisioning interaction and fail this one.
  * ══════════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -77,6 +89,54 @@ export default defineScenario({
       path: '/v1/deposits',
       headers: auth,
       body: { assetCode: 'NOTACOIN' },
+    })
+
+    // ────────────────────────────────────────────────────────────────────────────────────────
+    // THE HAPPY PATH, RECORDED LAST SO THAT NOTHING ABOVE IT MOVED.
+    //
+    // Appended rather than inserted beside the other deposit calls, and the ordering is load
+    // bearing in two ways. `GET /v1/deposits` at seq 3 records what a fresh account sees — an
+    // empty list — and provisioning before it would have overwritten that with a populated one,
+    // losing a real characterisation to gain nothing. And a new interaction in the middle
+    // renumbers every golden file after it, which turns a two-file diff into a seven-file one
+    // and hides the change that was actually made.
+    //
+    // EMBER, because `CHAIN_FOR_ASSET` in `wallet/src/addresses.ts` maps it to a chain. SHARD
+    // would take the `not_depositable` branch above and characterise the same refusal twice.
+    // ────────────────────────────────────────────────────────────────────────────────────────
+    await ctx.call('a deposit address is provisioned for an asset that settles on a chain', {
+      target: 'micro-wallet',
+      method: 'POST',
+      path: '/v1/deposits',
+      headers: auth,
+      body: { assetCode: 'EMBER' },
+    })
+
+    // Asked a second time, and recorded, because "201 again" IS the contract a client depends on:
+    // the receive panel calls this route on every render. What the corpus can hold is the STATUS
+    // and the SHAPE — that a repeat is not a 409 and not a second-shaped reply. What it cannot
+    // hold is that the id is the SAME id, because normalisation turns both into `<uuid>`, which is
+    // right: identity across two runs is not a thing a golden file can express. Beacon's
+    // `ecosystem.deposit-address` journey asserts that half against the live estate, where it can
+    // compare the two ids it received. Two tiers, one property, neither pretending to the other's
+    // half.
+    await ctx.call('asking for the same deposit address again is not a conflict', {
+      target: 'micro-wallet',
+      method: 'POST',
+      path: '/v1/deposits',
+      headers: auth,
+      body: { assetCode: 'EMBER' },
+    })
+
+    // The read-back, AFTER provisioning. Paired with seq 3 above, this is the one place in the
+    // corpus where the same route is recorded empty and populated, so the shape of an assignment
+    // as it is LISTED — not merely as it is returned from the write — is characterised too. A
+    // service that dropped a field from the list projection and not from the write would be
+    // invisible without it.
+    await ctx.call('the provisioned address is listed', {
+      target: 'micro-wallet',
+      path: '/v1/deposits',
+      headers: auth,
     })
   },
 })

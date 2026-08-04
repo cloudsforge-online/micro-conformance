@@ -55,6 +55,43 @@ describe('the normaliser', () => {
     assert.equal((n(first) as { error: { code: string } }).error.code, 'not_found')
   })
 
+  /**
+   * THE FIELD THAT WOULD HAVE MADE THE DEPOSIT HAPPY PATH UNCOMPARABLE THE DAY IT WAS RECORDED.
+   *
+   * `custodyKeyUrn` is `cf:custody:key:<chain>:<network>:<address>` and the address inside it is
+   * minted per user per run. No rule touched it: the `evm-address` rule is anchored, so it fires
+   * on the `address` field beside it and not on the URN that embeds it. Recording the field as it
+   * arrives would have put a value in the corpus that can never match, so `POST /v1/deposits`
+   * would have compared `value-changed` on every single run for ever — a suite that fails for a
+   * reason nobody believes, which is the failure mode that ends characterisation testing.
+   */
+  it('a custody key URN compares identical across two runs', () => {
+    const first = { custodyKeyUrn: 'cf:custody:key:ember:testnet:0x1C18Aff0eF0e7e44f41d48139EF35e81d0B7d9da' }
+    const second = { custodyKeyUrn: 'cf:custody:key:ember:testnet:0x076efB444F349dA51a3A33C6B3148fb26397CaeE' }
+    assert.deepEqual(compareJson(n(first), n(second)), [])
+  })
+
+  it('a URN in a shape custody does not publish is NOT erased', () => {
+    // Value-shaped rather than keyed on the field name, and this is the whole reason. The URN's
+    // GRAMMAR is contract — `04-domain-model.md` sets the form `cf:<service>:<type>:<id>` and
+    // wallet mints every segment from custody's own reply — so a service that started answering a
+    // bare id, or a URN under a different authority, must stay visible as a difference. Keying on
+    // the field name would have absorbed all three silently.
+    const changed = { custodyKeyUrn: 'urn:custody:0x1C18Aff0eF0e7e44f41d48139EF35e81d0B7d9da' }
+    const recorded = { custodyKeyUrn: 'cf:custody:key:ember:testnet:0x076efB444F349dA51a3A33C6B3148fb26397CaeE' }
+    assert.notDeepEqual(compareJson(n(recorded), n(changed)), [])
+  })
+
+  it('the chain and the network are not lost with it', () => {
+    // The URN collapses to one placeholder, so the two facts inside it that are NOT volatile have
+    // to survive somewhere. They do: `chain` and `network` are their own fields in the assignment
+    // beside it, and neither is normalised. An EMBER address filed under `eth` is still a visible
+    // difference.
+    const first = { chain: 'ember', network: 'testnet', custodyKeyUrn: 'cf:custody:key:ember:testnet:0xaa18Aff0eF0e7e44f41d48139EF35e81d0B7d9da' }
+    const second = { chain: 'eth', network: 'testnet', custodyKeyUrn: 'cf:custody:key:eth:testnet:0xbb18Aff0eF0e7e44f41d48139EF35e81d0B7d9da' }
+    assert.notDeepEqual(compareJson(n(first), n(second)), [])
+  })
+
   it('keyed on the field name only, so an opaque id under another name survives', () => {
     // The same 16-character base36 shape under `listingId` is a real identifier and must not be
     // erased by a rule aimed at correlation ids.

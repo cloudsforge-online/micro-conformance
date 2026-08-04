@@ -101,7 +101,7 @@ capability is characterised by a successor suite in the same run:
 
 | Scenario | Covers | Succeeds |
 | --- | --- | --- |
-| `micro-wallet` | `/v1/wallets`, `/v1/portfolio`, `/v1/deposits`, `/v1/deposits/credits`, `/v1/withdrawals`, and the `not_depositable` refusal on the write path | `wallet` |
+| `micro-wallet` | `/v1/wallets`, `/v1/portfolio`, `/v1/deposits`, `/v1/deposits/credits`, `/v1/withdrawals`, the `not_depositable` refusal on the write path, and **the deposit-address happy path**: provision, provision again, read back | `wallet` |
 | `micro-entitlements` | `GET /products` — the one route that replaced four frozen catalogue arrays — plus `/entitlements` and `/subscriptions` | `entitlements` |
 | `micro-mint` | `/v1/catalogue` (variants, price, network) and the order list | `mint` |
 | `micro-trade` | `/v1/strategies` and **`/v1/capabilities`**, plus bots and backtests | `trade` |
@@ -368,27 +368,37 @@ for a suite that observed nothing. So each generation names only its own targets
 `src/env.test.ts` asserts it — including the negative, which is what makes the positive mean
 anything.
 
-### The one route that is deliberately NOT in the baseline
+### The route that was deliberately NOT in the baseline, and now is
 
 `POST /v1/deposits` — the find-or-create deposit address, and the single most valuable interaction
-the legacy `wallet` suite has. **On this estate it is broken**, and a baseline is what later runs
-are compared against, so recording it would make the defect the contract and make its repair read
-as a breaking difference.
+the legacy `wallet` suite has. It was excluded for as long as it was broken, and the exclusion said:
 
-```
-POST /v1/deposits {"assetCode":"EMBER"}  →  500 {"error":{"code":"internal"}}
-```
+> **On this estate it is broken**, and a baseline is what later runs are compared against, so
+> recording it would make the defect the contract and make its repair read as a breaking
+> difference. `POST /v1/deposits {"assetCode":"EMBER"}` → `500 {"error":{"code":"internal"}}`.
+> wallet's own log names the cause: `CustodyRefusedError: POST http://custody:4000/v1/addresses →
+> 400`. Two defects in one response, neither of them this repository's to fix, and both reported
+> rather than frozen.
 
-wallet's own log names the cause: `CustodyRefusedError: POST http://custody:4000/v1/addresses →
-400`, thrown at `wallet/src/custodyclient.ts:153`. That class appears three times in `wallet/src`
-and all three are inside `custodyclient.ts`, so **nothing catches it** — a peer-decided 4xx reaches
-the caller as an internal error. Two defects in one response, neither of them this repository's to
-fix, and both reported rather than frozen.
+**That reasoning was right, and an exclusion has no way of noticing when its reason stops being
+true.** Wallet was not sending the `orderId` custody requires; it now sends the deposit assignment's
+own id, and the route answers **201** with an address, a `custodyKeyUrn` naming it, and a non-null
+`watchedAt`. Re-measured through the gateway on 2026-08-04 before the exclusion was removed.
 
-The route is still characterised by the half of it that is correct and deterministic: an asset that
-does not settle on a chain answers **400 `not_depositable`** without ever reaching custody. That
-records the write path's auth requirement, its refusal and its error code, and records nothing that
-is currently wrong.
+So the shape of the hazard is worth naming, because every suite here that cites a defect as its
+reason for not recording something carries it: **the repair of the defect is precisely the event
+that does not touch the file which excluded it.** The estate got better and the corpus stayed
+quiet, and nothing connected the two. Three interactions are now recorded — the provision, a second
+provision that is not a conflict, and the read-back — and beacon's `ecosystem.deposit-address`
+journey drives the same path on a schedule, which is the check an exclusion could never be.
+
+`custodyKeyUrn` embeds the minted address, so it needed the `custody-key-urn` normalisation rule
+before it could be recorded at all; without it every run would have compared `value-changed` for
+ever. The rule is value-shaped rather than keyed on the field name so that a URN in any other
+grammar stays visible — see `normalise.ts`.
+
+The refusal half stays recorded and is now what keeps the happy path honest: a route that answered
+201 to everything would satisfy the provisioning interaction and fail the `not_depositable` one.
 
 ### The line between an answer that is wrong and an answer that is right about a small estate
 
@@ -396,7 +406,10 @@ Both look thin in a corpus and they are opposites, so the rule is stated once an
 
 > **Exclude an answer that is wrong. Include an answer that is right about a small estate.**
 
-`POST /v1/deposits` is wrong — a 500 over an unhandled refusal — and is excluded. `GET /v1/titles`
+`POST /v1/deposits` used to be the worked example of the first half — a 500 over an unhandled
+refusal, excluded — and is now the worked example of what happens next: the rule says exclude an
+answer that is *wrong*, and nothing in that rule tells you when the answer stopped being wrong.
+`GET /v1/titles`
 is *right*: it reports one title, `emberkin`, `status: "draft"` with no capabilities, which is
 there because `deploy/scripts/estate-verify.sh:790-792` registers it and which `titles.ts:228`
 makes unsellable at that status. It is recorded, because a title registry losing its only entry is

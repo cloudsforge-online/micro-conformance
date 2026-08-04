@@ -30,6 +30,7 @@ export const PLACEHOLDER_TYPES: Readonly<Record<string, 'string' | 'number' | 'b
   '<email>': 'string',
   '<handle>': 'string',
   '<evm-address>': 'string',
+  '<custody-key-urn>': 'string',
   '<hash>': 'string',
   '<hex-quantity>': 'string',
   '<bech32-address>': 'string',
@@ -63,6 +64,13 @@ const BECH32 = /^(ember|bc|tb|bcrt)1[02-9ac-hj-np-z]{8,}$/
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 const XRP_ADDRESS = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/**
+ * `cf:custody:key:<chain>:<network>:<address>`.
+ *
+ * The grammar is required in full — authority, type, a chain, a network and a non-empty id — so
+ * that a URN in any OTHER shape does not match, is not erased, and shows up as a difference.
+ */
+const CUSTODY_KEY_URN = /^cf:custody:key:[a-z0-9-]+:[a-z0-9-]+:.+$/
 const DECIMAL_STRING = /^-?\d{6,}(\.\d+)?$/
 
 /**
@@ -165,6 +173,24 @@ export const RULES: readonly NormaliseRule[] = [
     why: 'Deposit addresses are minted per user by custody, so they differ per run. The raw address never reaches disk and the placeholder keeps the family, so an EVM address turning into a Solana one is still a visible difference.',
     placeholder: '<evm-address>',
     matches: (v) => typeof v === 'string' && EVM_ADDRESS.test(v),
+  },
+  {
+    name: 'custody-key-urn',
+    why:
+      'A deposit assignment carries `custodyKeyUrn`, which EMBEDS the minted address — ' +
+      '`cf:custody:key:<chain>:<network>:<address>` — so it is as volatile as the address beside ' +
+      'it and nothing was catching it: the `evm-address` rule is anchored and fires on the bare ' +
+      'field only. Without this every recording of POST /v1/deposits would compare value-changed ' +
+      'on every run, for ever, which is the "quietly weaker corpus" arrived at by a suite nobody ' +
+      'believes any more. ' +
+      'VALUE-SHAPED AND NOT KEYED ON THE FIELD NAME, unlike request-id: the URN GRAMMAR is the ' +
+      'contract here — wallet mints every segment from custody’s own reply so that it ' +
+      'dereferences back unchanged — so a service answering a bare id, or a URN under another ' +
+      'authority, must NOT match this rule and must stay visible as a difference. The two ' +
+      'non-volatile facts inside it, chain and network, are recorded unnormalised as their own ' +
+      'fields on the assignment, so collapsing the URN loses neither.',
+    placeholder: '<custody-key-urn>',
+    matches: (v) => typeof v === 'string' && CUSTODY_KEY_URN.test(v),
   },
   {
     name: 'volatile-hash-key',

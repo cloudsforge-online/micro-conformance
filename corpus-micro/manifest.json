@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "base": "micro",
-  "recordedAt": "2026-08-04T09:47:55.351Z",
+  "recordedAt": "2026-08-04T11:28:58.485Z",
   "scenarios": [
     {
       "name": "health",
@@ -23,7 +23,7 @@
       "name": "wallet",
       "title": "A wallet reads back, coins are priced, and a deposit address is issued once",
       "outcome": "skipped",
-      "reason": "pay is not mapped in this base, so GET /wallet was not attempted — no address serves the recorded payments surface: `micro-wallet` answers pay.<apex> (estate-web.yml:793-797) and 404s /wallet, /coins/rates, /deposit-coins, /withdrawal-coins, /deposits and /withdrawals — it serves /v1/wallets, /v1/deposits and /v1/withdrawals instead (wallet/src/server.ts:445-806). Of the eleven paths this corpus asks of `pay`, exactly one survives: /entitlements, which billing answers through the narrow router at estate-web.yml:798-802. THE CAPABILITY IS RECORDED — by the `micro-wallet` and `micro-entitlements` suites, against those addresses",
+      "reason": "pay is not mapped in this base, so GET /wallet was not attempted — no address serves the recorded payments surface: `micro-wallet` answers pay.<apex> (estate-web.yml:822-826) and 404s /wallet, /coins/rates, /deposit-coins, /withdrawal-coins, /deposits and /withdrawals — it serves /v1/wallets, /v1/deposits and /v1/withdrawals instead (wallet/src/server.ts:477-827). Of the eleven paths this corpus asks of `pay`, exactly one survives: /entitlements, which billing answers through the narrow router at estate-web.yml:827-831. THE CAPABILITY IS RECORDED — by the `micro-wallet` and `micro-entitlements` suites, against those addresses",
       "interactions": 0,
       "cleanupErrors": []
     },
@@ -31,7 +31,7 @@
       "name": "entitlements",
       "title": "The storefront lists its goods and an account lists what it owns",
       "outcome": "skipped",
-      "reason": "pay is not mapped in this base, so GET /entitlements was not attempted — no address serves the recorded payments surface: `micro-wallet` answers pay.<apex> (estate-web.yml:793-797) and 404s /wallet, /coins/rates, /deposit-coins, /withdrawal-coins, /deposits and /withdrawals — it serves /v1/wallets, /v1/deposits and /v1/withdrawals instead (wallet/src/server.ts:445-806). Of the eleven paths this corpus asks of `pay`, exactly one survives: /entitlements, which billing answers through the narrow router at estate-web.yml:798-802. THE CAPABILITY IS RECORDED — by the `micro-wallet` and `micro-entitlements` suites, against those addresses",
+      "reason": "pay is not mapped in this base, so GET /entitlements was not attempted — no address serves the recorded payments surface: `micro-wallet` answers pay.<apex> (estate-web.yml:822-826) and 404s /wallet, /coins/rates, /deposit-coins, /withdrawal-coins, /deposits and /withdrawals — it serves /v1/wallets, /v1/deposits and /v1/withdrawals instead (wallet/src/server.ts:477-827). Of the eleven paths this corpus asks of `pay`, exactly one survives: /entitlements, which billing answers through the narrow router at estate-web.yml:827-831. THE CAPABILITY IS RECORDED — by the `micro-wallet` and `micro-entitlements` suites, against those addresses",
       "interactions": 0,
       "cleanupErrors": []
     },
@@ -70,7 +70,7 @@
       "name": "micro-wallet",
       "title": "The wallet, the portfolio and the deposit and withdrawal ledgers read back",
       "outcome": "recorded",
-      "interactions": 7,
+      "interactions": 10,
       "cleanupErrors": []
     },
     {
@@ -103,7 +103,7 @@
     }
   ],
   "totals": {
-    "interactions": 50,
+    "interactions": 53,
     "recorded": 8,
     "skipped": 5,
     "failed": 0
@@ -117,6 +117,7 @@
     "handle",
     "request-id",
     "evm-address",
+    "custody-key-urn",
     "volatile-hash-key",
     "hash-32",
     "bech32-address",

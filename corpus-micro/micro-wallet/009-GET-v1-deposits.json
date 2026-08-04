@@ -1,0 +1,43 @@
+{
+  "formatVersion": 1,
+  "scenario": "micro-wallet",
+  "step": "the provisioned address is listed",
+  "seq": 9,
+  "target": "micro-wallet",
+  "request": {
+    "method": "GET",
+    "path": "/v1/deposits",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "assignments": [
+        {
+          "id": "<uuid>",
+          "userId": "<uuid>",
+          "assetCode": "EMBER",
+          "chain": "ember",
+          "network": "testnet",
+          "walletId": "<uuid>",
+          "address": "<evm-address>",
+          "custodyKeyUrn": "<custody-key-urn>",
+          "status": "active",
+          "assignedAt": "<timestamp>",
+          "rotatedAt": null,
+          "supersedesId": null,
+          "watchedAt": "<timestamp>"
+        }
+      ]
+    }
+  },
+  "timing": "instant"
+}

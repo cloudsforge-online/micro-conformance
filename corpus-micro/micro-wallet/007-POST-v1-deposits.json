@@ -1,0 +1,43 @@
+{
+  "formatVersion": 1,
+  "scenario": "micro-wallet",
+  "step": "a deposit address is provisioned for an asset that settles on a chain",
+  "seq": 7,
+  "target": "micro-wallet",
+  "request": {
+    "method": "POST",
+    "path": "/v1/deposits",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": {
+      "assetCode": "EMBER"
+    }
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "assignment": {
+        "id": "<uuid>",
+        "userId": "<uuid>",
+        "assetCode": "EMBER",
+        "chain": "ember",
+        "network": "testnet",
+        "walletId": "<uuid>",
+        "address": "<evm-address>",
+        "custodyKeyUrn": "<custody-key-urn>",
+        "status": "active",
+        "assignedAt": "<timestamp>",
+        "rotatedAt": null,
+        "supersedesId": null,
+        "watchedAt": "<timestamp>"
+      }
+    }
+  },
+  "timing": "fast"
+}
