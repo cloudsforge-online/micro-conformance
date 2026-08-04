@@ -89,6 +89,76 @@ CONFORMANCE_URL_PAY=http://gateway.internal/pay \
 
 ---
 
+## 2a. This corpus characterises an estate that is no longer running
+
+**Stated here because it is the single most important fact about this repository today, and
+nothing in the tool says it out loud.**
+
+Every base in `src/env.ts` names the ten legacy `stack` services — `nimbus` (4001), `game` (4002),
+`pay` (4003), `mint` (4004), `keyvault` (4005), `crucible` (4006), `lantern` (4010), `beacon`
+(4011), plus the two Hearth listeners. The corpus in `corpus/` was recorded against them on
+2026-07-29.
+
+On 2026-08-04, **eight of those ten refuse connections.** Only the two Hearth listeners answer:
+
+```
+$ node --import tsx src/cli.ts record --base local --out /tmp/probe/
+  recorded health         1 interactions — did not answer: nimbus/health, game/health, pay/health,
+                                           mint/health, keyvault/health, crucible/health,
+                                           lantern/health, beacon/health
+  skipped  identity       0 — nimbus did not answer POST /auth/register: ECONNREFUSED 127.0.0.1:4001
+  skipped  wallet         0 — nimbus did not answer POST /auth/register: ECONNREFUSED 127.0.0.1:4001
+  skipped  entitlements   0 — nimbus did not answer POST /auth/register: ECONNREFUSED 127.0.0.1:4001
+  skipped  mint           0 — mint did not answer GET /chains: ECONNREFUSED 127.0.0.1:4004
+  skipped  trade          0 — crucible did not answer GET /catalog: ECONNREFUSED 127.0.0.1:4006
+  skipped  game           0 — game did not answer GET /worlds: ECONNREFUSED 127.0.0.1:4002
+  recorded chain          7 interactions
+```
+
+The live estate is the **`micro-*` estate** — identity, ledger, market, worlds, activity, hub-api
+and forty more, behind the gateway — and no base here points at it. So:
+
+> **There is no conformance evidence available for the estate the release gate actually gates, and
+> there cannot be until a base is written for it and a baseline is recorded against it.**
+
+### Why the obvious shortcut is refused
+
+`compare --base local` still produces a verdict, and it is `BREAKING`. That verdict is **true about
+the legacy estate and misleading about the release**: it says the contract broke, when what
+happened is that the services were switched off. Publishing it to Beacon would put
+`conformance_breaking` in front of a micro-estate release for a reason that has nothing to do with
+that release — a known blocker attributed to the wrong estate, which is worse than an honest
+unknown. The gate's own design says so: an unknown refuses and cannot be waived, precisely so that
+nobody is tempted to manufacture a determinate answer.
+
+So nothing was published, and the gate still reports `conformance_never_run`. **That reason code is
+correct and it should stay until a micro-estate baseline exists.**
+
+### What has to happen, in order
+
+1. Add a `micro` base that names the estate's real addresses (through the gateway, on the estate
+   CA — never `curl -k`), and map each scenario onto the service that now serves it.
+2. `record --base micro` to capture a baseline. **A recording is not evidence**; it is the thing
+   later comparisons are evidence against.
+3. From then on, `compare --base micro --beacon <url>` in CI, which posts the result per scenario.
+
+### The wire that was missing
+
+`POST /v1/conformance` has existed in Beacon since the table was created, its own comment says
+"the corpus is replayed by `@cloudsforge/conformance` in CI", and `micro-beacon-web` documents the
+route. **Nothing has ever called it** — not this repository, not any workflow, not any deploy
+script. That is the second, independent reason `conformance_runs` is empty: even a working corpus
+would not have reached the gate.
+
+`compare --beacon <url>` is that wire, added 2026-08-04. It posts **one run per scenario**, and a
+scenario that could not run is posted with zero counts so Beacon derives a `skip` — which the gate
+now reports as `conformance_inconclusive`, an unknown. A scenario is never dropped from the
+publish: the gate's other conformance input is whether *any* row exists, so publishing the suites
+that ran and quietly omitting the ones that did not is exactly how a partial estate would certify
+itself.
+
+---
+
 ## 3. Comparing a new service against it
 
 ```bash

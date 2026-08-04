@@ -30,6 +30,7 @@ import {
 import { compareCorpora } from './compare.ts'
 import type { ComparisonReport, Difference } from './compare.ts'
 import { loadCorpus } from './corpus.ts'
+import { postsFor, publish, type SkippedScenario } from './publish.ts'
 import { baseNames, loadSecrets } from './env.ts'
 import { formatReconciliation, reconcileAccountClaims, sweepEstate } from './ledgeraccounts.ts'
 import { BASELINE_UNRESOLVED, MIN_SERVICES } from './ledgeraccounts.ts'
@@ -70,6 +71,11 @@ interface Flags {
    * number rather than a discount on the one above.
    */
   readonly maxBlindToEveryCheck: number
+  /** Beacon's base URL. When set, `compare` posts one conformance run per scenario. */
+  readonly beacon: string
+  readonly beaconToken: string
+  /** The release tag the run is about, recorded alongside it. Optional. */
+  readonly release: string
 }
 
 function parseFlags(argv: readonly string[]): Flags {
@@ -93,6 +99,9 @@ function parseFlags(argv: readonly string[]): Flags {
     maxUnresolved: Number(get('max-unresolved') ?? String(BASELINE_UNRESOLVED)),
     maxBlindRoutes: Number(get('max-blind-routes') ?? String(BASELINE_BLIND_ROUTES)),
     maxBlindToEveryCheck: Number(get('max-blind-to-every-check') ?? String(BASELINE_BLIND_TO_EVERY_CHECK)),
+    beacon: get('beacon') ?? '',
+    beaconToken: get('beacon-token') ?? '',
+    release: get('release') ?? '',
   }
 }
 
@@ -104,8 +113,15 @@ conformance — the CloudsForge characterisation harness
            normalised golden file per interaction.
 
   compare  --corpus corpus/ --base <env> [--only a,b] [--json report.json]
+           [--beacon <url> [--beacon-token <t>] [--release <tag>]]
            Replay the scenarios against the target and classify every difference
            as identical, benign or breaking. Exits 1 on any breaking difference.
+
+           --beacon posts one conformance run PER SCENARIO to POST /v1/conformance,
+           which is the gate's only characterisation input and which nothing in this
+           estate has ever called. A scenario that could not run is posted with zero
+           counts, so Beacon derives a skip and the gate stays indeterminate rather
+           than being told the estate is fine by the scenarios that did run.
 
   report   [--corpus corpus/]
            Summarise a recorded corpus: what it covers, what skipped, and why.
@@ -218,7 +234,76 @@ async function doCompare(flags: Flags, secrets: Secrets): Promise<number> {
     console.log(`\nwritten to ${flags.json}`)
   }
 
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+  // PUBLISHING IS PART OF COMPARING, NOT A SEPARATE COMMAND SOMEBODY REMEMBERS TO RUN.
+  //
+  // `POST /v1/conformance` has existed in Beacon since the table was created and has NEVER been
+  // called by anything in this estate — that is why the gate has said `conformance_never_run` for
+  // its whole life. A separate `conformance publish` would be a second thing to wire into CI, and
+  // the first thing was never wired in either. So it hangs off `--beacon`, on the command that
+  // already produces the numbers.
+  //
+  // It runs whether the comparison passed or failed, and the exit code is unchanged by it: a
+  // breaking comparison is exactly the result the gate most needs to be told about, and a publish
+  // failure must not turn a red comparison green or a green one red.
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+  if (flags.beacon) {
+    await publishComparison(report, baseline, replay, flags)
+  }
+
   return report.breaking ? 1 : 0
+}
+
+/**
+ * Post one conformance run per scenario to Beacon.
+ *
+ * The per-scenario compared counts come from the BASELINE corpus, not from the replay: the
+ * denominator is "how many interactions this scenario is meant to compare", and taking it from the
+ * replay would let a scenario that recorded fewer interactions than it used to report a smaller
+ * denominator and therefore a healthier-looking run. `compare` already classes recorded-then-
+ * skipped as breaking for the same reason.
+ */
+async function publishComparison(
+  report: ComparisonReport,
+  baseline: ReturnType<typeof loadCorpus>,
+  replay: Awaited<ReturnType<typeof record>>,
+  flags: Flags,
+): Promise<void> {
+  const token = flags.beaconToken || process.env['BEACON_TOKEN'] || ''
+  if (!token) {
+    console.error('\n--beacon needs --beacon-token or BEACON_TOKEN; nothing was published')
+    return
+  }
+
+  const comparedByScenario = new Map<string, number>()
+  for (const interaction of baseline.interactions) {
+    comparedByScenario.set(interaction.scenario, (comparedByScenario.get(interaction.scenario) ?? 0) + 1)
+  }
+
+  // A scenario the REPLAY could not run. Its reason is carried through to Beacon's operator, which
+  // is the whole difference between "conformance is indeterminate" and "conformance is
+  // indeterminate because eight of ten targets are not deployed".
+  const skipped: SkippedScenario[] = replay.manifest.scenarios
+    .filter((scenario) => scenario.outcome !== 'recorded')
+    .map((scenario) => ({ name: scenario.name, reason: scenario.reason ?? 'no reason given' }))
+  for (const scenario of skipped) comparedByScenario.delete(scenario.name)
+
+  const posts = postsFor(report, comparedByScenario, skipped, {
+    corpusRef: `${baseline.manifest.base}@${baseline.manifest.recordedAt}`,
+    ...(flags.release ? { release: flags.release } : {}),
+  })
+
+  const results = await publish(posts, {
+    baseUrl: flags.beacon,
+    headers: { 'x-beacon-token': token },
+  })
+
+  const failed = results.filter((result) => !result.ok)
+  console.log(`\npublished ${results.length - failed.length}/${results.length} suites to ${flags.beacon}`)
+  for (const scenario of skipped) console.log(`  skip  ${scenario.name} — ${scenario.reason}`)
+  for (const result of failed) {
+    console.error(`  FAILED ${result.suite} — HTTP ${result.status} ${result.error ?? ''}`)
+  }
 }
 
 function printComparison(report: ComparisonReport, verbose: boolean): void {

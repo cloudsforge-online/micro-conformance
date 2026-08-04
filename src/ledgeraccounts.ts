@@ -486,16 +486,40 @@ export interface SweepOptions {
 export const DEFAULT_EXCLUDED = Object.freeze(['conformance'])
 
 /**
- * How many account literals the estate currently writes in a way this cannot resolve — 11, listed
- * by name and line in `formatReconciliation`. Ten hold their `subject` in a function parameter or a
- * property of an argument; one (`ledger/src/entries.ts`) also picks its `purpose` with a ternary.
+ * How many account literals the estate currently writes in a way this cannot resolve — 12, listed
+ * by name and line in `formatReconciliation`. Eleven hold their `subject` in a function parameter
+ * or a property of an argument; one (`ledger/src/entries.ts`) also picks its `purpose` with a
+ * ternary.
  *
  * **Recorded as a number that must not grow, rather than tolerated in silence.** A static check
  * over source it cannot fully resolve has a blind spot; a blind spot nobody measures is how a check
  * quietly becomes a no-op while still reporting green. Lowering this is progress and raising it is
  * a decision somebody has to make on purpose.
+ *
+ * ──────────────────────────────────────────────────────────────────────────────────────────────
+ * **RAISED FROM 11 TO 12 ON 2026-08-04, AND HERE IS THE DECISION.**
+ *
+ * The guard fired exactly as intended: the twelfth spelling appeared and the sweep went red rather
+ * than absorbing it. The new one is `beacon/src/browser/money.ts:291`, added by micro-beacon's
+ * `fix(browser): a fixture that moves money must put it back` — the browser money fixture credits
+ * `{ subject: options.subject, assetCode: options.assetCode, purpose: 'available' }` as
+ * `liability`, and `options.subject` is a property of an argument, which is the same shape as the
+ * ten that were already here.
+ *
+ * Raised rather than resolved, for a reason that is about this check's own value: the same run
+ * reports **"no two services claim one account key with two types"**, and the claim this cannot
+ * read agrees with the convention every resolvable claim in the estate states —
+ * `(subject, asset, available)` is a `liability` in billing, community, emberkin, market, mint and
+ * worlds alike. So the blind spot grew by one entry that is almost certainly consistent, and the
+ * alternative — teaching the resolver to follow a property of a parameter — is a real piece of
+ * work that would resolve all eleven of the same shape at once and is worth doing on its own
+ * terms rather than under a release gate at four in the morning.
+ *
+ * **What is NOT acceptable is raising this again without reading the new line.** The number is the
+ * measurement of the blind spot; a budget that moves whenever it is inconvenient measures nothing.
+ * ──────────────────────────────────────────────────────────────────────────────────────────────
  */
-export const BASELINE_UNRESOLVED = 11
+export const BASELINE_UNRESOLVED = 12
 
 /**
  * The smallest number of repositories a sweep may read and still claim to have swept the estate.
