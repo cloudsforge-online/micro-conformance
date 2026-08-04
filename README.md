@@ -58,7 +58,7 @@ real user, no real balance, no real address, and no money moves at any point —
 
 ```bash
 pnpm install
-pnpm typecheck && pnpm test          # 197 tests, none of which needs a running estate
+pnpm typecheck && pnpm test          # 205 tests, none of which needs a running estate
 
 node --import tsx src/cli.ts record --base local --out corpus/
 ```
@@ -93,6 +93,21 @@ CONFORMANCE_URL_PAY=http://gateway.internal/pay \
 | `trade` | The whole static `/catalog`, plus the per-account read surface |
 | `game` | `/worlds`, world detail, roster, `/cosmetics` |
 | `chain` | `eth_chainId`, `net_version`, `eth_blockNumber`, `eth_getBalance` on 8545; REST `/info` and `/supply` on 8645 |
+
+The five rows above them — `wallet`, `entitlements`, `mint`, `trade`, `game` — characterise the
+**legacy** estate and skip against `--base micro`, because those resources were redesigned rather
+than re-hosted. The same five capabilities on the micro estate have their own suites:
+
+| Scenario | Covers | Succeeds |
+| --- | --- | --- |
+| `micro-wallet` | `/v1/wallets`, `/v1/portfolio`, `/v1/deposits`, `/v1/deposits/credits`, `/v1/withdrawals`, and the `not_depositable` refusal on the write path | `wallet` |
+| `micro-entitlements` | `GET /products` — the one route that replaced four frozen catalogue arrays — plus `/entitlements` and `/subscriptions` | `entitlements` |
+| `micro-mint` | `/v1/catalogue` (variants, price, network) and the order list | `mint` |
+| `micro-trade` | `/v1/strategies` and **`/v1/capabilities`**, plus bots and backtests | `trade` |
+| `micro-worlds` | `/v1/titles`, the fail-open `/v1/players/me`, inventory and provisions | `game` |
+
+Neither generation is ever pointed at the other's estate, and `src/env.test.ts` asserts that: a
+successor suite names only `micro-*` targets, a legacy suite never names one. See §2b.
 
 ---
 
@@ -226,12 +241,15 @@ what makes that replacement provable. `wallet`, `mint`, `trade` and `game` see o
 | `chain` | `pass` | The **same hearth-testnet node** the legacy corpus recorded. The one suite whose two recordings are directly comparable. |
 | `health` | `pass` | jwks and `/info` answer; eight `/health` routes are gone and recorded as gone. |
 | `identity` | `pass` | Register, `/auth/me`, rotation and password change all replay. |
-| `wallet`, `entitlements`, `mint`, `trade`, `game` | `skip` | → five `conformance_inconclusive`. |
+| `micro-wallet`, `micro-entitlements`, `micro-mint`, `micro-trade`, `micro-worlds` | `pass` | The five capabilities, at the addresses that serve them. 24 interactions, every one `application/json`, no 5xx. |
+| `wallet`, `entitlements`, `mint`, `trade`, `game` | `skip` | The five LEGACY contracts, which nothing on this estate serves → five `conformance_inconclusive`. |
 
-**The gate still refuses, and that is the correct outcome.** Retiring `conformance_never_run` was
-never the same thing as making the gate green: five suites are honest unknowns and an unknown
-cannot be waived. What changed is that the gate now says *which* five and *why*, instead of saying
-nothing had ever run.
+**The five skips are unchanged and they are still the correct outcome.** They are not the same
+statement as "the capability is unmeasured": each legacy reason now ends by naming the successor
+suite that records the capability. What the gate is told is precise — *the legacy wallet contract
+has no evidence on this estate, and the wallet capability has a baseline of its own* — and it is
+still an unknown that cannot be waived, because a legacy contract with no server is exactly what
+an unknown is for.
 
 Three things this baseline is **not** evidence of, stated because a recording is the thing later
 comparisons are evidence against and never the evidence itself:
@@ -316,6 +334,73 @@ by eye:
 
 The predecessor's hand check reached the same conclusion, and it was right — but it was right by
 inspection, which is the thing that check exists to replace.
+
+---
+
+## 2c. The five capabilities that had no baseline, and what recording them found
+
+Five suites reported `conformance_inconclusive` because their legacy contracts have no server on
+this estate. That is a true statement about the contracts and it was being read as a statement
+about the products, so each capability was traced to whatever serves it now and characterised
+there. All five have a live successor; **none was retired.**
+
+Every address below was measured on 2026-08-04 through the gateway on the estate's own CA — never
+`curl -k` — against 61 healthy containers.
+
+| Capability | Legacy suite asked | What serves it now | Evidence |
+| --- | --- | --- | --- |
+| Wallet | `pay` `/wallet`, `/coins/rates`, `/deposit-coins` | `micro-wallet` at `pay.<apex>`, whole host at priority 500 (`estate-web.yml:793-797`) | `/v1/wallets`, `/v1/portfolio`, `/v1/deposits`, `/v1/deposits/credits`, `/v1/withdrawals` — `wallet/src/server.ts:445-806` |
+| Entitlements | `pay` `/cosmetics`, `/convenience`, `/season-pass`, `/private-worlds` | `micro-billing`, four prefixes carved out at priority 600 (`estate-web.yml:798-802`) | One `GET /products` replaces all four arrays; seeded by `billing/src/migrations.ts:391` |
+| Mint | `mint` `/chains`, `/offers`, `/capabilities` | `micro-mint` at `create.<apex>/v1` (`estate-web.yml:238-242`) | `/v1/catalogue`, `/v1/tokens` — `mint/src/server.ts:354-441` |
+| Trade | `crucible` `/catalog` | `micro-trade` at `trade.<apex>/v1` (`estate-web.yml:251-255`) | `/v1/strategies`, `/v1/capabilities` — `trade/src/server.ts:341-370` |
+| Game | `game` `/worlds`, `/cosmetics` | `micro-worlds` at `worlds-api.<apex>`, whole host (`estate-web.yml:299-303`) | `/v1/titles`, `/v1/players/me`, `/v1/provisions` — `worlds/src/server.ts:507-741` |
+
+**The successor suites are new suites, not the old ones repointed.** That distinction is the whole
+of §2b's argument carried forward: a legacy suite pointed at a successor address records 404s as
+behaviour, compares them identical forever, and Beacon derives `pass` from `identical + benign > 0`
+for a suite that observed nothing. So each generation names only its own targets and
+`src/env.test.ts` asserts it — including the negative, which is what makes the positive mean
+anything.
+
+### The one route that is deliberately NOT in the baseline
+
+`POST /v1/deposits` — the find-or-create deposit address, and the single most valuable interaction
+the legacy `wallet` suite has. **On this estate it is broken**, and a baseline is what later runs
+are compared against, so recording it would make the defect the contract and make its repair read
+as a breaking difference.
+
+```
+POST /v1/deposits {"assetCode":"EMBER"}  →  500 {"error":{"code":"internal"}}
+```
+
+wallet's own log names the cause: `CustodyRefusedError: POST http://custody:4000/v1/addresses →
+400`, thrown at `wallet/src/custodyclient.ts:153`. That class appears three times in `wallet/src`
+and all three are inside `custodyclient.ts`, so **nothing catches it** — a peer-decided 4xx reaches
+the caller as an internal error. Two defects in one response, neither of them this repository's to
+fix, and both reported rather than frozen.
+
+The route is still characterised by the half of it that is correct and deterministic: an asset that
+does not settle on a chain answers **400 `not_depositable`** without ever reaching custody. That
+records the write path's auth requirement, its refusal and its error code, and records nothing that
+is currently wrong.
+
+### The line between an answer that is wrong and an answer that is right about a small estate
+
+Both look thin in a corpus and they are opposites, so the rule is stated once and applied:
+
+> **Exclude an answer that is wrong. Include an answer that is right about a small estate.**
+
+`POST /v1/deposits` is wrong — a 500 over an unhandled refusal — and is excluded. `GET /v1/titles`
+is *right*: it reports one title, `emberkin`, `status: "draft"` with no capabilities, which is
+there because `deploy/scripts/estate-verify.sh:790-792` registers it and which `titles.ts:228`
+makes unsellable at that status. It is recorded, because a title registry losing its only entry is
+worth a human looking whoever put the entry there. `micro-worlds`' header says so, so a future
+`breaking` diff on that file arrives with its provenance attached.
+
+The same rule is why `GET /v1/portfolio` is in the baseline: its body carries a `degraded` array
+naming the sources it could not read. It recorded `[]`. A corpus taken while that array was
+non-empty would be a corpus of a partly-blind estate, and recording the field is what makes the
+difference visible instead of invisible.
 
 ---
 

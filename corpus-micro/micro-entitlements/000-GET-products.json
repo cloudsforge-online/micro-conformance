@@ -1,0 +1,128 @@
+{
+  "formatVersion": 1,
+  "scenario": "micro-entitlements",
+  "step": "read the product catalogue",
+  "seq": 0,
+  "target": "micro-billing",
+  "request": {
+    "method": "GET",
+    "path": "/products",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "products": [
+        {
+          "id": "<uuid>",
+          "sku": "convenience.extra-slot",
+          "name": "Extra Character Slot",
+          "kind": "one_off",
+          "scopeKind": "platform",
+          "entitlementDays": null,
+          "metadata": {
+            "category": "convenience"
+          },
+          "prices": [
+            {
+              "id": "<uuid>",
+              "assetCode": "USD",
+              "unitAmount": "400",
+              "interval": null,
+              "intervalCount": 1
+            }
+          ]
+        },
+        {
+          "id": "<uuid>",
+          "sku": "cosmetic.ember-cape",
+          "name": "Ember Cape",
+          "kind": "one_off",
+          "scopeKind": "platform",
+          "entitlementDays": null,
+          "metadata": {
+            "category": "cosmetic"
+          },
+          "prices": [
+            {
+              "id": "<uuid>",
+              "assetCode": "USD",
+              "unitAmount": "250",
+              "interval": null,
+              "intervalCount": 1
+            }
+          ]
+        },
+        {
+          "id": "<uuid>",
+          "sku": "guild.hall.monthly",
+          "name": "Guild Hall",
+          "kind": "subscription",
+          "scopeKind": "community",
+          "entitlementDays": null,
+          "metadata": {
+            "category": "community"
+          },
+          "prices": [
+            {
+              "id": "<uuid>",
+              "assetCode": "USD",
+              "unitAmount": "500",
+              "interval": "month",
+              "intervalCount": 1
+            }
+          ]
+        },
+        {
+          "id": "<uuid>",
+          "sku": "season.pass.s1",
+          "name": "Season Pass: Emberfall",
+          "kind": "one_off",
+          "scopeKind": "platform",
+          "entitlementDays": 90,
+          "metadata": {
+            "season": 1,
+            "category": "season_pass"
+          },
+          "prices": [
+            {
+              "id": "<uuid>",
+              "assetCode": "USD",
+              "unitAmount": "1000",
+              "interval": null,
+              "intervalCount": 1
+            }
+          ]
+        },
+        {
+          "id": "<uuid>",
+          "sku": "world.private.small",
+          "name": "Private World (small)",
+          "kind": "one_off",
+          "scopeKind": "title",
+          "entitlementDays": 30,
+          "metadata": {
+            "category": "private_world",
+            "maxPlayers": 8
+          },
+          "prices": [
+            {
+              "id": "<uuid>",
+              "assetCode": "USD",
+              "unitAmount": "750",
+              "interval": null,
+              "intervalCount": 1
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "timing": "instant"
+}

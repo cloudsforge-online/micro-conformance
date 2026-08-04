@@ -1,22 +1,21 @@
 {
   "formatVersion": 1,
-  "scenario": "identity",
-  "step": "a password change with the wrong current password is refused",
-  "seq": 9,
-  "target": "nimbus",
+  "scenario": "micro-wallet",
+  "step": "an asset that does not settle on a chain has no deposit address",
+  "seq": 6,
+  "target": "micro-wallet",
   "request": {
     "method": "POST",
-    "path": "/auth/password",
+    "path": "/v1/deposits",
     "headers": {
       "authorization": "<redacted>"
     },
     "body": {
-      "currentPassword": "<redacted>",
-      "newPassword": "<redacted>"
+      "assetCode": "NOTACOIN"
     }
   },
   "response": {
-    "status": 401,
+    "status": 400,
     "headers": {
       "access-control-allow-credentials": "true",
       "cache-control": "no-store",
@@ -24,8 +23,8 @@
     },
     "body": {
       "error": {
-        "code": "bad_password",
-        "message": "that is not your current password",
+        "code": "not_depositable",
+        "message": "NOTACOIN does not settle on a chain and has no deposit address",
         "requestId": "<request-id>"
       }
     }

@@ -1,0 +1,33 @@
+{
+  "formatVersion": 1,
+  "scenario": "micro-wallet",
+  "step": "read the portfolio",
+  "seq": 2,
+  "target": "micro-wallet",
+  "request": {
+    "method": "GET",
+    "path": "/v1/portfolio",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "subject": "user:019fcc2c-2d61-7000-9a9a-8f71da739da8",
+      "network": "testnet",
+      "balances": [],
+      "wallets": [],
+      "nextCursor": null,
+      "degraded": [],
+      "asOf": "<timestamp>"
+    }
+  },
+  "timing": "instant"
+}

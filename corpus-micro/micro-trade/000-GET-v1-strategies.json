@@ -1,0 +1,321 @@
+{
+  "formatVersion": 1,
+  "scenario": "micro-trade",
+  "step": "read the strategy catalogue",
+  "seq": 0,
+  "target": "micro-trade",
+  "request": {
+    "method": "GET",
+    "path": "/v1/strategies",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "strategies": [
+        {
+          "id": "buy_hold",
+          "name": "Buy & Hold",
+          "family": "benchmark",
+          "tagline": "Buy on the first bar, never sell.",
+          "weakness": "Takes the full drawdown of every crash, in full, every time.",
+          "params": []
+        },
+        {
+          "id": "sma_cross",
+          "name": "SMA Crossover",
+          "family": "trend",
+          "tagline": "Buy when the fast average crosses above the slow one.",
+          "weakness": "Whipsaws badly in a sideways market, paying a fee on every false cross.",
+          "params": [
+            {
+              "key": "fast",
+              "label": "Fast period",
+              "help": "Bars in the fast average. Lower reacts sooner and trades more.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 20,
+              "unit": "bars"
+            },
+            {
+              "key": "slow",
+              "label": "Slow period",
+              "help": "Bars in the slow average. Must be longer than the fast one.",
+              "min": 5,
+              "max": 400,
+              "step": 1,
+              "default": 50,
+              "unit": "bars"
+            }
+          ]
+        },
+        {
+          "id": "ema_cross",
+          "name": "EMA Crossover",
+          "family": "trend",
+          "tagline": "A crossover that weights recent bars more heavily.",
+          "weakness": "Reacts sooner than SMA, and therefore to more noise.",
+          "params": [
+            {
+              "key": "fast",
+              "label": "Fast period",
+              "help": "Bars in the fast average.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 12,
+              "unit": "bars"
+            },
+            {
+              "key": "slow",
+              "label": "Slow period",
+              "help": "Bars in the slow average.",
+              "min": 5,
+              "max": 400,
+              "step": 1,
+              "default": 26,
+              "unit": "bars"
+            }
+          ]
+        },
+        {
+          "id": "macd_trend",
+          "name": "MACD Trend",
+          "family": "momentum",
+          "tagline": "Long while MACD is above its signal line.",
+          "weakness": "A lagging indicator of a lagging indicator; late in and late out.",
+          "params": [
+            {
+              "key": "fast",
+              "label": "Fast period",
+              "help": "Fast EMA of the MACD line.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 12,
+              "unit": "bars"
+            },
+            {
+              "key": "slow",
+              "label": "Slow period",
+              "help": "Slow EMA of the MACD line.",
+              "min": 5,
+              "max": 400,
+              "step": 1,
+              "default": 26,
+              "unit": "bars"
+            },
+            {
+              "key": "signal",
+              "label": "Signal period",
+              "help": "EMA taken over the MACD line itself.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 9,
+              "unit": "bars"
+            }
+          ]
+        },
+        {
+          "id": "rsi_reversion",
+          "name": "RSI Reversion",
+          "family": "mean_reversion",
+          "tagline": "Buy oversold, sell overbought.",
+          "weakness": "Buys every step of the way down in a real trend.",
+          "params": [
+            {
+              "key": "period",
+              "label": "RSI period",
+              "help": "Bars in the RSI window.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 14,
+              "unit": "bars"
+            },
+            {
+              "key": "oversold",
+              "label": "Oversold level",
+              "help": "Buy when RSI crosses below this.",
+              "min": 5,
+              "max": 45,
+              "step": 1,
+              "default": 30
+            },
+            {
+              "key": "overbought",
+              "label": "Overbought level",
+              "help": "Sell when RSI crosses above this.",
+              "min": 55,
+              "max": 95,
+              "step": 1,
+              "default": 70
+            }
+          ]
+        },
+        {
+          "id": "bollinger_breakout",
+          "name": "Bollinger Breakout",
+          "family": "volatility",
+          "tagline": "Buy a close above the upper band, exit at the middle.",
+          "weakness": "A quiet market makes the bands narrow, and every wiggle a breakout.",
+          "params": [
+            {
+              "key": "period",
+              "label": "Band period",
+              "help": "Bars in the moving average the bands sit around.",
+              "min": 5,
+              "max": 200,
+              "step": 1,
+              "default": 20,
+              "unit": "bars"
+            },
+            {
+              "key": "deviations",
+              "label": "Deviations",
+              "help": "Standard deviations to the upper and lower band.",
+              "min": 1,
+              "max": 4,
+              "step": 0.1,
+              "default": 2,
+              "unit": "σ"
+            }
+          ]
+        },
+        {
+          "id": "donchian_breakout",
+          "name": "Donchian Breakout",
+          "family": "trend",
+          "tagline": "Buy a new N-bar high, sell a new M-bar low.",
+          "weakness": "Gives back a fixed slice of every trend before it exits.",
+          "params": [
+            {
+              "key": "entry",
+              "label": "Entry lookback",
+              "help": "Bars in the high that triggers entry.",
+              "min": 5,
+              "max": 300,
+              "step": 1,
+              "default": 20,
+              "unit": "bars"
+            },
+            {
+              "key": "exit",
+              "label": "Exit lookback",
+              "help": "Bars in the low that triggers exit.",
+              "min": 3,
+              "max": 300,
+              "step": 1,
+              "default": 10,
+              "unit": "bars"
+            }
+          ]
+        },
+        {
+          "id": "atr_trailing",
+          "name": "ATR Trailing Stop",
+          "family": "volatility",
+          "tagline": "Enter above trend, exit on a volatility-scaled trailing stop.",
+          "weakness": "A volatility spike stops it out of a trend that then continues without it.",
+          "params": [
+            {
+              "key": "trend",
+              "label": "Trend period",
+              "help": "Average the close must exceed to enter.",
+              "min": 5,
+              "max": 400,
+              "step": 1,
+              "default": 50,
+              "unit": "bars"
+            },
+            {
+              "key": "atr",
+              "label": "ATR period",
+              "help": "Bars in the average true range.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 14,
+              "unit": "bars"
+            },
+            {
+              "key": "multiple",
+              "label": "ATR multiple",
+              "help": "How many ATRs below the peak the stop sits.",
+              "min": 0.5,
+              "max": 10,
+              "step": 0.1,
+              "default": 3,
+              "unit": "×"
+            }
+          ]
+        },
+        {
+          "id": "grid",
+          "name": "Grid",
+          "family": "accumulation",
+          "tagline": "Buy a rung on every step down from the running high.",
+          "weakness": "Fills every rung and holds the lot through a market that never comes back.",
+          "params": [
+            {
+              "key": "rungs",
+              "label": "Rungs",
+              "help": "Slices the allocation is divided into.",
+              "min": 2,
+              "max": 50,
+              "step": 1,
+              "default": 8
+            },
+            {
+              "key": "spacing",
+              "label": "Spacing",
+              "help": "Percent fall between one rung and the next.",
+              "min": 0.1,
+              "max": 20,
+              "step": 0.1,
+              "default": 2,
+              "unit": "%"
+            }
+          ]
+        },
+        {
+          "id": "dca",
+          "name": "Dollar-Cost Average",
+          "family": "accumulation",
+          "tagline": "Buy a fixed slice every N bars until fully invested.",
+          "weakness": "Ignores price entirely, which is the point and also the cost.",
+          "params": [
+            {
+              "key": "every",
+              "label": "Interval",
+              "help": "Bars between one slice and the next.",
+              "min": 1,
+              "max": 400,
+              "step": 1,
+              "default": 7,
+              "unit": "bars"
+            },
+            {
+              "key": "slices",
+              "label": "Slices",
+              "help": "Purchases the allocation is divided into.",
+              "min": 2,
+              "max": 100,
+              "step": 1,
+              "default": 12
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "timing": "instant"
+}

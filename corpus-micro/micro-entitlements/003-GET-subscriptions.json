@@ -1,0 +1,27 @@
+{
+  "formatVersion": 1,
+  "scenario": "micro-entitlements",
+  "step": "read the account’s subscriptions",
+  "seq": 3,
+  "target": "micro-billing",
+  "request": {
+    "method": "GET",
+    "path": "/subscriptions",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "subscriptions": []
+    }
+  },
+  "timing": "instant"
+}

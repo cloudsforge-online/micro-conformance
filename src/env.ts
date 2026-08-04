@@ -26,6 +26,22 @@ export const TARGETS = [
   'beacon',
   'hearth-rest',
   'hearth-rpc',
+  // ── The successors ─────────────────────────────────────────────────────────────────────────
+  //
+  // Five capabilities the legacy targets above no longer reach, given their own names rather than
+  // being folded into the old ones. `micro-mint` is NOT `mint`, and the difference is the whole
+  // reason both exist: `mint` records `/chains`, `/offers` and `/capabilities`, which the
+  // successor does not serve, and `micro-mint` records `/v1/catalogue` and `/v1/tokens`, which
+  // the legacy service never had. Reusing one key would make the corpus claim the two recordings
+  // were of the same surface and compare them against each other.
+  //
+  // The names are the estate's own: these are the `micro-*` services `docker ps` lists and
+  // `deploy/gateway/dynamic/estate-web.yml` routes to.
+  'micro-wallet',
+  'micro-billing',
+  'micro-mint',
+  'micro-trade',
+  'micro-worlds',
 ] as const
 
 export type Target = (typeof TARGETS)[number]
@@ -98,6 +114,31 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
     beacon: 'http://127.0.0.1:4011',
     'hearth-rest': 'http://127.0.0.1:8645',
     'hearth-rpc': 'http://127.0.0.1:8545',
+
+    // The successor services do not exist in the legacy estate at all, so every successor suite
+    // skips against `local` for exactly the reason every legacy suite skips against `micro`. That
+    // symmetry is what lets one set of scenario files record both estates without either
+    // recording being bent to suit the other.
+    'micro-wallet': unmapped(
+      'micro-wallet does not exist in the legacy estate. The capability it serves lives here in ' +
+        'forge-pay, and the `wallet` suite above is the recording of it',
+    ),
+    'micro-billing': unmapped(
+      'micro-billing does not exist in the legacy estate. Its catalogue and entitlements live ' +
+        'here in forge-pay, and the `entitlements` suite above is the recording of them',
+    ),
+    'micro-mint': unmapped(
+      'micro-mint does not exist in the legacy estate. The token-creation capability lives here ' +
+        'in ForgeMint, and the `mint` suite above is the recording of it',
+    ),
+    'micro-trade': unmapped(
+      'micro-trade does not exist in the legacy estate. The trading capability lives here in ' +
+        'Crucible, and the `trade` suite above is the recording of it',
+    ),
+    'micro-worlds': unmapped(
+      'micro-worlds does not exist in the legacy estate. The game capability lives here in ' +
+        'Ninety Days After, and the `game` suite above is the recording of it',
+    ),
   },
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════
@@ -175,37 +216,89 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
     'hearth-rest': 'http://127.0.0.1:8645',
     'hearth-rpc': 'http://127.0.0.1:8545',
 
+    /* ══════════════════════════════════════════════════════════════════════════════════════════
+     * THE SUCCESSORS — the five capabilities the legacy suites can no longer reach, at the
+     * addresses that DO serve them.
+     *
+     * This is the other half of the unmapped block below, and the two must be read together. The
+     * legacy suites stay unmapped because pointing them here would record 404s as behaviour and
+     * manufacture a pass. That argument is about the SUITES, not about the capabilities: a wallet
+     * exists on this estate, it is healthy, and refusing to characterise it because the old paths
+     * are gone would be the mirror error — an estate with no evidence for five of its products.
+     *
+     * Every row is a host root, not a `/v1` prefix, so the versioned path appears in the corpus
+     * file name. `corpus-micro/micro-mint/000-GET-v1-catalogue.json` is legible in a diff in a way
+     * that `000-GET-catalogue.json` under a base that silently prefixed `/v1` would not be.
+     *
+     * Measured 2026-08-04 with `curl --cacert deploy/gateway/certs/ca.crt`, against the estate at
+     * 61 healthy containers. Every address below answered 200 or 401 with `application/json` — no
+     * 404, and no `text/html`, which is the trap two of the legacy targets fall into.
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     */
+
+    // `pay.<apex>` is routed WHOLE to micro-wallet at priority 500 (`cf-web-pay`,
+    // estate-web.yml:793-797), with four billing prefixes carved out above it at 600 — so the
+    // same host serves two services and they are two targets here. GET /v1/wallets, /v1/deposits,
+    // /v1/deposits/credits, /v1/withdrawals and /v1/portfolio all answer 401 anonymously and 200
+    // to an identity token (wallet/src/server.ts:445-806).
+    'micro-wallet': gateway('pay'),
+
+    // The carve-out: `/entitlements`, `/products`, `/purchases`, `/subscriptions` at priority 600
+    // (`cf-api-pay-billing`, estate-web.yml:798-802) reach micro-billing on the same hostname
+    // (billing/src/server.ts:375-580). Only the two READ routes and the catalogue are recorded —
+    // `/purchases` spends.
+    'micro-billing': gateway('pay'),
+
+    // `create.<apex>` serves the web bundle at its root and micro-mint under `/v1` only
+    // (`cf-api-create`, estate-web.yml:238-242). That is precisely why the legacy `mint` target is
+    // unmapped rather than pointed at this host: `GET /tokens` at the root is the SPA shell.
+    'micro-mint': gateway('create'),
+
+    // The same shape: `trade.<apex>` is the bundle, `/v1` is micro-trade (`cf-api-trade-host`,
+    // estate-web.yml:251-255).
+    'micro-trade': gateway('trade'),
+
+    // `worlds-api.<apex>` is routed WHOLE to micro-worlds (`cf-api-worlds`,
+    // estate-web.yml:299-303) — an API hostname with no bundle on it, which is why this one needs
+    // no `/v1` guard. `worlds.<apex>/v1` reaches the same service; the api hostname is used
+    // because it cannot lose a priority tie to a bundle.
+    'micro-worlds': gateway('worlds-api'),
+
     // ── UNMAPPED — the four product APIs that were redesigned rather than re-hosted ───────────
     //
     // Each reason names the successor, the address, and the measurement. They are reasons an
     // operator reads in Beacon, so they say what is true rather than "not available".
     pay: unmapped(
       'no address serves the recorded payments surface: `micro-wallet` answers pay.<apex> ' +
-        '(estate-web.yml:731-735) and 404s /wallet, /coins/rates, /deposit-coins, ' +
+        '(estate-web.yml:793-797) and 404s /wallet, /coins/rates, /deposit-coins, ' +
         '/withdrawal-coins, /deposits and /withdrawals — it serves /v1/wallets, /v1/deposits and ' +
-        '/v1/withdrawals instead (wallet/src/server.ts:445-702). Of the eleven paths this corpus ' +
-        'asks of `pay`, exactly one survives: /entitlements, which billing answers 401 through ' +
-        'the narrow router at estate-web.yml:736-740',
+        '/v1/withdrawals instead (wallet/src/server.ts:445-806). Of the eleven paths this corpus ' +
+        'asks of `pay`, exactly one survives: /entitlements, which billing answers through the ' +
+        'narrow router at estate-web.yml:798-802. THE CAPABILITY IS RECORDED — by the ' +
+        '`micro-wallet` and `micro-entitlements` suites, against those addresses',
     ),
     game: unmapped(
       'no address serves the recorded game surface: `micro-worlds` answers worlds-api.<apex> and ' +
         '404s both /worlds and /cosmetics — it serves /v1/titles and /v1/players/me instead ' +
-        '(worlds/src/server.ts:507-638). Ninety Days After is a TITLE under Worlds now, not the ' +
-        'product the corpus recorded',
+        '(worlds/src/server.ts:507-682). Ninety Days After is a TITLE under Worlds now, not the ' +
+        'product the corpus recorded. THE CAPABILITY IS RECORDED — by the `micro-worlds` suite, ' +
+        'against the player surface that replaced it',
     ),
     mint: unmapped(
       'no address serves the recorded mint surface: `micro-mint` serves /v1/catalogue and ' +
         '/v1/tokens (mint/src/server.ts:354-441) and has no /chains, /offers or /capabilities. ' +
         'AND THE ROOT OF create.<apex> IS THE WEB BUNDLE, NOT THE API — GET /tokens there answers ' +
         '200 text/html, the SPA shell. Pointing this target at that host would record an HTML ' +
-        'page as ForgeMint’s order list and compare it identical forever',
+        'page as ForgeMint’s order list and compare it identical forever. THE CAPABILITY IS ' +
+        'RECORDED — by the `micro-mint` suite, under create.<apex>/v1 where the API actually is',
     ),
     crucible: unmapped(
       'no address serves the recorded trading surface: `micro-trade` serves /v1/strategies, ' +
-        '/v1/bots and /v1/backtests (trade/src/server.ts:341-539) and has no /catalog at all — ' +
+        '/v1/bots and /v1/backtests (trade/src/server.ts:341-590) and has no /catalog at all — ' +
         'the single largest static contract in the legacy estate, and the whole of the `trade` ' +
         'scenario. The root of trade.<apex> is the web bundle: GET /bots and GET /backtests there ' +
-        'answer 200 text/html, so this target cannot be pointed at the host either',
+        'answer 200 text/html, so this target cannot be pointed at the host either. THE ' +
+        'CAPABILITY IS RECORDED — by the `micro-trade` suite, under trade.<apex>/v1',
     ),
   },
 }

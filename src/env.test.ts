@@ -25,6 +25,7 @@ import {
   secretFilesFor,
 } from './env.ts'
 import type { BaseUrls, HarnessSecrets } from './env.ts'
+import { ALL_SCENARIOS } from './scenarios/index.ts'
 
 const SAVED = {
   extra: process.env['NODE_EXTRA_CA_CERTS'],
@@ -254,5 +255,107 @@ describe('the secret-literal refusal', () => {
     const secrets = loadSecrets('micro')
     assert.equal(secrets.literals.length, 0)
     assert.throws(() => assertSecretLiterals(secrets, 'micro'), /conformance-does-not-exist/)
+  })
+})
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * THE FIVE CAPABILITIES THAT HAD NO MICRO BASELINE, AND THE RULE THAT DECIDED HOW THEY GOT ONE.
+ *
+ * `wallet`, `entitlements`, `mint`, `trade` and `game` are the legacy suites, and on the micro
+ * base they skip: the resources were renamed and versioned, so every path they know answers 404 at
+ * the successor's address. Pointing them at those successors would manufacture a pass — six stable
+ * 404s compare identical forever and Beacon derives `pass` from `identical + benign > 0`.
+ *
+ * So the legacy suites stay unmapped and stay skipped, and the CAPABILITIES are characterised by
+ * five new suites against the surfaces that actually serve them. The rule that separates the two
+ * groups is mechanical and is asserted here:
+ *
+ *   **A successor suite names only `micro-*` targets. A legacy suite never names one.**
+ *
+ * Which is what keeps the `local` corpus recordable by the same code: every `micro-*` target is
+ * unmapped in `local`, so the successor suites skip there exactly as the legacy ones skip here.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('the successor targets', () => {
+  const successors = TARGETS.filter((t) => t.startsWith('micro-'))
+
+  it('names one target per capability that lost its legacy address', () => {
+    assert.deepEqual(
+      [...successors].sort(),
+      ['micro-billing', 'micro-mint', 'micro-trade', 'micro-wallet', 'micro-worlds'],
+    )
+  })
+
+  it('maps every successor target in the micro base, through the gateway', () => {
+    const micro = resolveBase('micro')
+    for (const target of successors) {
+      const entry = micro[target]
+      assert.ok(!isUnmapped(entry), `micro/${target} must be mapped — its service is running`)
+      assert.match(entry as string, /^https:\/\//, `micro/${target} must be reached through the gateway`)
+    }
+  })
+
+  it('leaves every successor target unmapped in local, so the legacy corpus is unaffected', () => {
+    const local = resolveBase('local')
+    for (const target of successors) {
+      const entry = local[target]
+      assert.ok(isUnmapped(entry), `local/${target} must be unmapped — the legacy estate never had it`)
+    }
+  })
+
+  it('keeps every legacy target unmapped or unchanged in micro, so no legacy suite is repointed', () => {
+    const micro = resolveBase('micro')
+    // The four that were redesigned. If any of these ever gains an address, the legacy suite it
+    // feeds starts recording 404s as behaviour — which is the false pass this whole split avoids.
+    for (const target of ['pay', 'game', 'mint', 'crucible'] as const) {
+      assert.ok(isUnmapped(micro[target]), `micro/${target} must stay unmapped`)
+    }
+  })
+})
+
+/**
+ * The rule that keeps the two generations of suite from bending each other.
+ *
+ * Stated in `scenarios/index.ts` and asserted here rather than left to whoever adds the next one,
+ * because the failure it prevents is the one this repository already nearly shipped: a legacy
+ * suite repointed at a successor address records 404s as behaviour, compares them identical
+ * forever, and Beacon derives `pass` from `identical + benign > 0` for a suite that observed
+ * nothing (`beacon/src/conformance.ts:100-108`).
+ */
+describe('the two generations of suite', () => {
+  const isSuccessorSuite = (name: string): boolean => name.startsWith('micro-')
+
+  it('names one successor suite per capability that lost its legacy address', () => {
+    assert.deepEqual(
+      ALL_SCENARIOS.map((s) => s.name).filter(isSuccessorSuite).sort(),
+      ['micro-entitlements', 'micro-mint', 'micro-trade', 'micro-wallet', 'micro-worlds'],
+    )
+  })
+
+  it('lets a successor suite name only successor targets, plus nimbus for the account', () => {
+    for (const scenario of ALL_SCENARIOS.filter((s) => isSuccessorSuite(s.name))) {
+      for (const target of scenario.targets) {
+        assert.ok(
+          target.startsWith('micro-') || target === 'nimbus',
+          `${scenario.name} names the legacy target '${target}'`,
+        )
+      }
+    }
+  })
+
+  it('never lets a legacy suite name a successor target, which is how a false pass would be built', () => {
+    for (const scenario of ALL_SCENARIOS.filter((s) => !isSuccessorSuite(s.name))) {
+      for (const target of scenario.targets) {
+        assert.ok(!target.startsWith('micro-'), `${scenario.name} names the successor target '${target}'`)
+      }
+    }
+  })
+
+  it('gives every successor suite a description saying what breaking looks like to a user', () => {
+    for (const scenario of ALL_SCENARIOS.filter((s) => isSuccessorSuite(s.name))) {
+      assert.ok(scenario.description.length > 80, `${scenario.name} has no real description`)
+      assert.ok(scenario.title.length > 20, `${scenario.name} has no real title`)
+    }
   })
 })

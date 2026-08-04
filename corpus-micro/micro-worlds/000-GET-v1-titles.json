@@ -1,0 +1,34 @@
+{
+  "formatVersion": 1,
+  "scenario": "micro-worlds",
+  "step": "read the title registry",
+  "seq": 0,
+  "target": "micro-worlds",
+  "request": {
+    "method": "GET",
+    "path": "/v1/titles",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "titles": [
+        {
+          "id": "<uuid>",
+          "slug": "emberkin",
+          "name": "Emberkin",
+          "status": "draft",
+          "capabilities": [],
+          "assetScopes": []
+        }
+      ]
+    }
+  },
+  "timing": "instant"
+}

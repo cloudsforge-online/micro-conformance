@@ -41,8 +41,8 @@
       "organisations": [
         {
           "id": "<uuid>",
-          "slug": "cf-2f8b8ee1d38643",
-          "name": "cf_2f8b8ee1d38643",
+          "slug": "cf-a21d25813fbc48",
+          "name": "cf_a21d25813fbc48",
           "kind": "personal",
           "status": "active",
           "createdAt": "<timestamp>",

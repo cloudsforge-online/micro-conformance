@@ -1,0 +1,29 @@
+{
+  "formatVersion": 1,
+  "scenario": "micro-worlds",
+  "step": "a player read without a token is refused",
+  "seq": 1,
+  "target": "micro-worlds",
+  "request": {
+    "method": "GET",
+    "path": "/v1/players/me",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "error": {
+        "code": "unauthenticated",
+        "message": "a valid bearer token is required",
+        "requestId": "<request-id>"
+      }
+    }
+  },
+  "timing": "instant"
+}
