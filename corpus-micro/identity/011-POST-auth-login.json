@@ -1,0 +1,32 @@
+{
+  "formatVersion": 1,
+  "scenario": "identity",
+  "step": "sign in with the new password",
+  "seq": 11,
+  "target": "nimbus",
+  "request": {
+    "method": "POST",
+    "path": "/auth/login",
+    "headers": {},
+    "body": {
+      "email": "<email>",
+      "password": "<redacted>"
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "error": {
+        "code": "bad_request",
+        "message": "an identifier and a password are required",
+        "requestId": "<request-id>"
+      }
+    }
+  },
+  "timing": "instant"
+}

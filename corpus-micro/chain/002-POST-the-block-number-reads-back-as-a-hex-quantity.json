@@ -1,0 +1,31 @@
+{
+  "formatVersion": 1,
+  "scenario": "chain",
+  "step": "the block number reads back as a hex quantity",
+  "seq": 2,
+  "target": "hearth-rpc",
+  "request": {
+    "method": "POST",
+    "path": "/",
+    "headers": {},
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "eth_blockNumber",
+      "params": []
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-origin": "*",
+      "content-type": "application/json"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": "<hex-quantity>"
+    }
+  },
+  "timing": "instant"
+}

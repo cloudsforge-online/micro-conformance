@@ -151,6 +151,14 @@ conformance — the CloudsForge characterisation harness
 Base environments: ${baseNames().join(', ')}
 Scenarios:         ${ALL_SCENARIOS.map((s) => s.name).join(', ')}
 
+'micro' reaches the estate through the gateway, which serves the estate's own CA. Trust it:
+
+  NODE_EXTRA_CA_CERTS=<estate>/deploy/gateway/certs/ca.crt conformance record --base micro
+
+record and compare REFUSE to run without it rather than skipping every scenario, because a
+handshake this process cannot verify is indistinguishable from an estate that is switched off —
+and NODE_TLS_REJECT_UNAUTHORIZED=0 is refused by name, not accepted as the answer.
+
 Any single service can be repointed without editing the base:
   CONFORMANCE_URL_PAY=http://gateway.internal/pay conformance compare --base micro
 `.trim()

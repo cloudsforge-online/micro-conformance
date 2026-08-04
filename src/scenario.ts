@@ -19,6 +19,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { isUnmapped } from './env.ts'
 import type { BaseUrls, HarnessSecrets, Target } from './env.ts'
 import { request, timingBucket } from './http.ts'
 import { normalise, normalisePath } from './normalise.ts'
@@ -182,8 +183,18 @@ export async function runScenario(scenario: Scenario, deps: RunDeps): Promise<Ru
     secrets: deps.secrets,
     shared: deps.shared,
     async call(step, options) {
-      const base = deps.base[options.target]
+      const resolved = deps.base[options.target]
       const method = (options.method ?? 'GET').toUpperCase()
+
+      // A target with no address in this base skips, before a request is built. It is the same
+      // outcome as an absent service and for the stronger reason: nothing was dialled, so nothing
+      // was observed, and there is no response to mistake for evidence. See `UnmappedTarget`.
+      if (isUnmapped(resolved)) {
+        throw new ScenarioSkip(
+          `${options.target} is not mapped in this base, so ${method} ${options.path} was not attempted — ${resolved.reason}`,
+        )
+      }
+      const base = resolved
       const send = () =>
         request(`${base}${options.path}`, {
           method,

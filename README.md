@@ -131,16 +131,8 @@ that release — a known blocker attributed to the wrong estate, which is worse 
 unknown. The gate's own design says so: an unknown refuses and cannot be waived, precisely so that
 nobody is tempted to manufacture a determinate answer.
 
-So nothing was published, and the gate still reports `conformance_never_run`. **That reason code is
-correct and it should stay until a micro-estate baseline exists.**
-
-### What has to happen, in order
-
-1. Add a `micro` base that names the estate's real addresses (through the gateway, on the estate
-   CA — never `curl -k`), and map each scenario onto the service that now serves it.
-2. `record --base micro` to capture a baseline. **A recording is not evidence**; it is the thing
-   later comparisons are evidence against.
-3. From then on, `compare --base micro --beacon <url>` in CI, which posts the result per scenario.
+So nothing was published, and the gate reported `conformance_never_run`. That reason code was
+correct and it stayed until a micro-estate baseline existed. **It does now — see §2b.**
 
 ### The wire that was missing
 
@@ -156,6 +148,123 @@ now reports as `conformance_inconclusive`, an unknown. A scenario is never dropp
 publish: the gate's other conformance input is whether *any* row exists, so publishing the suites
 that ran and quietly omitting the ones that did not is exactly how a partial estate would certify
 itself.
+
+---
+
+## 2b. The micro baseline, and the finding that came with it
+
+**`conformance_never_run` is retired.** A `micro` base exists, `corpus-micro/` is its baseline, and
+`compare --base micro --beacon <url>` published eight suites to Beacon on 2026-08-04.
+
+```bash
+# The CA is not optional and `-k` is not an option. See `assertTlsTrust` — a run that cannot
+# verify the estate skips every scenario and publishes eight unknowns that read like a dead estate.
+export NODE_EXTRA_CA_CERTS=<estate>/deploy/gateway/certs/ca.crt
+
+node --import tsx src/cli.ts record  --base micro --out corpus-micro/
+node --import tsx src/cli.ts compare --base micro --corpus corpus-micro/ \
+  --beacon https://beacon.cloudsforge.localtest.me --release <tag>
+```
+
+### The finding: the micro estate is a REDESIGN, not a re-hosting
+
+`src/env.ts`'s own header assumed the opposite — "a `micro-*` replacement on a different port is
+still 'wallet' and still compares against what 'wallet' used to do". Measured through the gateway
+on 2026-08-04, that is true of identity and of nothing else. **Four of the ten targets have no
+address serving the surface this corpus records**, because the resources were renamed and
+versioned:
+
+| Target | Successor | What the corpus asks for | What is there |
+| --- | --- | --- | --- |
+| `pay` | `micro-wallet` at `pay.<apex>` | `/wallet`, `/coins/rates`, `/deposit-coins`, `/deposits` … | `/v1/wallets`, `/v1/deposits`, `/v1/withdrawals` — 1 of 11 paths survives (`/entitlements`, via billing) |
+| `game` | `micro-worlds` at `worlds-api.<apex>` | `/worlds`, `/cosmetics` | `/v1/titles`, `/v1/players/me` |
+| `mint` | `micro-mint` | `/chains`, `/offers`, `/capabilities` | `/v1/catalogue`, `/v1/tokens` |
+| `crucible` | `micro-trade` | `/catalog`, `/bots`, `/billing` | `/v1/strategies`, `/v1/bots`, `/v1/backtests` |
+
+### Why those four are UNMAPPED rather than pointed at their successors
+
+**Because a 404 is a response, and `ctx.call` only skips on a transport failure.** Point `pay` at
+the wallet service and the `wallet` scenario records six 404s, reports `recorded`, and the next
+comparison finds all six *identical* — `identical + benign > 0` is exactly what makes Beacon's
+`statusFor` derive `pass` rather than `skip` (`beacon/src/conformance.ts:100-108`). The gate would
+then be told the wallet suite passes, on the evidence that every wallet route is absent. A stable
+404 is indistinguishable from a stable contract to everything downstream.
+
+**And two of them would have recorded an HTML page as an API.** The roots of `create.<apex>` and
+`trade.<apex>` are the web bundles; only `/v1` reaches the service. `GET /bots` on `trade.<apex>`
+answers **200 text/html** — the SPA shell. That is the "200 carrying HTML" failure this estate has
+been bitten by before, and it would have compared identical forever.
+
+So `env.ts` gained `UnmappedTarget`: a target with no address and a stated reason. The scenario
+skips before a request is built, the reason reaches the manifest and Beacon verbatim, and the gate
+reports `conformance_inconclusive` — an unknown that refuses and cannot be waived.
+
+### The line between a suite that skips and a suite that records absence
+
+`health` is MAPPED to `keyvault`, `lantern` and `beacon` and records a 404 from each, because
+those services serve `/livez` and `/readyz` now. That is not a double standard:
+
+> A scenario that observes something real plus documented absences has characterised the estate.
+> A scenario that observes **nothing but absence** has characterised nothing, and must not report a
+> verdict.
+
+`health` sees jwks answer 200, the chain node answer 200, and eight `/health` routes demonstrably
+gone — which is P2 landing, and §2's own note says recording the shape the estate has *today* is
+what makes that replacement provable. `wallet`, `mint`, `trade` and `game` see only absence.
+
+### What the run says, and what it does not
+
+| Suite | Result | |
+| --- | --- | --- |
+| `chain` | `pass` | The **same hearth-testnet node** the legacy corpus recorded. The one suite whose two recordings are directly comparable. |
+| `health` | `pass` | jwks and `/info` answer; eight `/health` routes are gone and recorded as gone. |
+| `identity` | `pass` | Register, `/auth/me`, rotation and password change all replay. |
+| `wallet`, `entitlements`, `mint`, `trade`, `game` | `skip` | → five `conformance_inconclusive`. |
+
+**The gate still refuses, and that is the correct outcome.** Retiring `conformance_never_run` was
+never the same thing as making the gate green: five suites are honest unknowns and an unknown
+cannot be waived. What changed is that the gate now says *which* five and *why*, instead of saying
+nothing had ever run.
+
+Three things this baseline is **not** evidence of, stated because a recording is the thing later
+comparisons are evidence against and never the evidence itself:
+
+- **That the micro estate is correct.** `corpus-micro/` characterises it against *itself*. Nothing
+  here compares the micro estate to the legacy contract, and after the table above it is clear that
+  nothing could.
+- **That identity's contract is unchanged.** Two differences are recorded rather than papered over:
+  `POST /auth/login` now requires `identifier`, not `email` (it answers 400 to the legacy shape),
+  and `/portal/handoff` + `/auth/exchange` are `/auth/handoff` + `/auth/handoff/redeem`
+  (`identity/src/server.ts:1144,1161`), so the SSO half is reported as unrecorded. The scenario
+  paths were deliberately **not** renamed: the same code records the `local` corpus, so renaming
+  them would rewrite what the legacy baseline characterises in order to make this one greener.
+- **That refresh-reuse detection is exercised.** All three `/auth/refresh` calls answer 200, which
+  is **not** a missing defence: `micro-identity` has a 10-second rotation grace window
+  (`identity/src/tokens.ts:171`), and a token re-presented inside it is classed `concurrent` with
+  the family kept. The scenario re-presents in milliseconds, so it can never reach the burn. This
+  is the sharpest instance of §4's "anything it does not exercise" and the next thing worth fixing.
+
+### A KNOWN GAP IN THE HYGIENE REFUSAL ON THIS BASE — not fixed, and stated so it is not forgotten
+
+`loadSecrets` finds the estate root by walking up for a directory holding both `docker-compose.yml`
+and `.env.example` (`src/env.ts`, `findStackRoot`). On this machine that resolves to the **legacy
+`stack` checkout**, so a `--base micro` run loads the LEGACY estate's literals. The micro estate
+keeps its secrets in `deploy/compose/.env` and `deploy/compose/estate/tokens.env`, and neither is
+read.
+
+**The consequence, precisely:** the refusal's *pattern* half is fully in force on this base — JWTs,
+DSNs, PEM blocks and the rest — and its *literal* half is loading the wrong estate's values. A
+micro-estate service token echoed back in a response body under an unremarkable key would not be
+matched by literal, only by pattern.
+
+`corpus-micro/` as committed was checked by hand against this: the only long opaque strings in it
+are the RSA **public** modulus from `/.well-known/jwks.json` — which is the thing the `health`
+scenario exists to characterise — and the chain's genesis hash, which `chain` deliberately keeps
+comparable. Nothing else survives unredacted; `<redacted>` appears 26 times.
+
+Fixing it means teaching `loadSecrets` about a second estate layout, which is a change to the most
+safety-critical path in this repository and was deliberately not made in the same commit as the
+base that revealed it.
 
 ---
 

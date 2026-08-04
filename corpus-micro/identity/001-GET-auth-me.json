@@ -1,0 +1,55 @@
+{
+  "formatVersion": 1,
+  "scenario": "identity",
+  "step": "read the account back from the token",
+  "seq": 1,
+  "target": "nimbus",
+  "request": {
+    "method": "GET",
+    "path": "/auth/me",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "user": {
+        "id": "<uuid>",
+        "email": "<email>",
+        "emailVerifiedAt": null,
+        "handle": "<handle>",
+        "status": "active",
+        "roles": [
+          "player"
+        ],
+        "createdAt": "<timestamp>",
+        "lastSeenAt": null
+      },
+      "session": {
+        "id": "<uuid>",
+        "amr": [
+          "pwd"
+        ]
+      },
+      "organisations": [
+        {
+          "id": "<uuid>",
+          "slug": "cf-2f8b8ee1d38643",
+          "name": "cf_2f8b8ee1d38643",
+          "kind": "personal",
+          "status": "active",
+          "createdAt": "<timestamp>",
+          "role": "owner"
+        }
+      ]
+    }
+  },
+  "timing": "instant"
+}

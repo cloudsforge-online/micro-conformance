@@ -38,6 +38,38 @@ describe('the normaliser', () => {
     assert.deepEqual(compareJson(n(first), n(second)), [])
   })
 
+  /**
+   * THE FIELD THAT MADE HALF THE MICRO CORPUS UNCOMPARABLE.
+   *
+   * The micro estate puts a correlation id inside the error envelope. It is 16 characters of
+   * base36, so no value-shaped rule touches it, and every 4xx in the corpus therefore compared
+   * `value-changed` on every run and could never contribute an `identical`. Measured before the
+   * rule existed: 13 of 26 interactions in the first micro recording.
+   */
+  it('a micro-estate error envelope compares identical across two runs', () => {
+    const first = { error: { code: 'not_found', message: 'no route for GET /health', requestId: 'dt2gk45tk03m39vg' } }
+    const second = { error: { code: 'not_found', message: 'no route for GET /health', requestId: 'p7ep5vxz565m2z05' } }
+    assert.deepEqual(compareJson(n(first), n(second)), [])
+    // The CODE and the MESSAGE are untouched — they are the contract, and a rule that erased them
+    // would make every 404 in the estate compare equal to every other one.
+    assert.equal((n(first) as { error: { code: string } }).error.code, 'not_found')
+  })
+
+  it('keyed on the field name only, so an opaque id under another name survives', () => {
+    // The same 16-character base36 shape under `listingId` is a real identifier and must not be
+    // erased by a rule aimed at correlation ids.
+    const kept = n({ listingId: 'dt2gk45tk03m39vg' }) as { listingId: string }
+    assert.equal(kept.listingId, 'dt2gk45tk03m39vg')
+  })
+
+  it('a requestId that is a UUID stays a uuid, so a change of id FORMAT is still visible', () => {
+    // `uuid` is earlier in RULES than `request-id`, deliberately. Both formats are normalised, so
+    // neither is noise — but a service that swapped UUID correlation ids for base36 ones shows up
+    // as `<uuid>` against `<request-id>` rather than silently agreeing.
+    assert.equal((n({ requestId: '0523c894-365d-4383-8150-7017fabcd9d2' }) as { requestId: string }).requestId, '<uuid>')
+    assert.equal((n({ requestId: 'dt2gk45tk03m39vg' }) as { requestId: string }).requestId, '<request-id>')
+  })
+
   it('two recordings of the same wallet with different generated addresses compare identical', () => {
     const a = { address: '0x54123fdcd2792a7325da615650cbf5a251e62063', coin: 'EMBER', network: 'testnet' }
     const b = { address: '0xabcdef0123456789abcdef0123456789abcdef01', coin: 'EMBER', network: 'testnet' }

@@ -201,4 +201,58 @@ describe('the scenario driver', () => {
     )
     assert.deepEqual(collected[0]?.request.body, { email: '<email>', password: '<redacted>' })
   })
+
+  /**
+   * THE PROPERTY THAT KEEPS A REDESIGNED SERVICE FROM CERTIFYING ITSELF.
+   *
+   * An unmapped target must skip BEFORE a request is built. The failure this prevents is not
+   * hypothetical: `pay` pointed at `micro-wallet` answers a stable 404 to all six wallet routes, so
+   * the scenario would record six 404s, the next comparison would find them identical, and Beacon's
+   * `statusFor` would derive `pass` for a suite that never observed a wallet. The assertion is
+   * therefore on BOTH halves — the outcome is a skip, AND nothing was recorded.
+   */
+  it('an unmapped target skips carrying its reason, and never records a response', async () => {
+    const collected: Interaction[] = []
+    const base = { ...deps(collected).base, pay: { unmapped: true, reason: 'wallet 404s every recorded route' } }
+    const { report } = await runScenario(
+      defineScenario({
+        name: 'stub',
+        title: 't',
+        description: 'd',
+        targets: ['pay'],
+        async run(ctx) {
+          await ctx.call('read the wallet', { target: 'pay', path: '/wallet' })
+        },
+      }),
+      { ...deps(collected), base: base as BaseUrls },
+    )
+    assert.equal(report.outcome, 'skipped')
+    assert.match(report.reason ?? '', /pay is not mapped in this base/)
+    assert.match(report.reason ?? '', /wallet 404s every recorded route/)
+    // The half that matters: an unmapped target produces no evidence at all.
+    assert.deepEqual(collected, [])
+    assert.equal(report.interactions, 0)
+  })
+
+  /**
+   * The same target, mapped and answering 200, DOES record — otherwise the test above would pass
+   * against a driver that had simply stopped recording anything.
+   */
+  it('the same target mapped to a live address records normally', async () => {
+    const collected: Interaction[] = []
+    const { report } = await runScenario(
+      defineScenario({
+        name: 'stub',
+        title: 't',
+        description: 'd',
+        targets: ['pay'],
+        async run(ctx) {
+          await ctx.call('read the wallet', { target: 'pay', path: '/wallet' })
+        },
+      }),
+      deps(collected),
+    )
+    assert.equal(report.outcome, 'recorded')
+    assert.equal(collected.length, 1)
+  })
 })

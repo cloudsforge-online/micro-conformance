@@ -1,0 +1,29 @@
+{
+  "formatVersion": 1,
+  "scenario": "identity",
+  "step": "rotate the refresh token",
+  "seq": 6,
+  "target": "nimbus",
+  "request": {
+    "method": "POST",
+    "path": "/auth/refresh",
+    "headers": {},
+    "body": {
+      "refreshToken": "<redacted>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "accessToken": "<redacted>",
+      "refreshToken": "<redacted>",
+      "expiresIn": "<number>"
+    }
+  },
+  "timing": "instant"
+}

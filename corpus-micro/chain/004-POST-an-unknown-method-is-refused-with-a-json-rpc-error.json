@@ -1,0 +1,34 @@
+{
+  "formatVersion": 1,
+  "scenario": "chain",
+  "step": "an unknown method is refused with a JSON-RPC error",
+  "seq": 4,
+  "target": "hearth-rpc",
+  "request": {
+    "method": "POST",
+    "path": "/",
+    "headers": {},
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "eth_thisMethodDoesNotExist",
+      "params": []
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-origin": "*",
+      "content-type": "application/json"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "error": {
+        "code": -32601,
+        "message": "the method eth_thisMethodDoesNotExist does not exist/is not available"
+      }
+    }
+  },
+  "timing": "instant"
+}

@@ -1,0 +1,34 @@
+{
+  "formatVersion": 1,
+  "scenario": "health",
+  "step": "nimbus publishes a verifiable signing key",
+  "seq": 1,
+  "target": "nimbus",
+  "request": {
+    "method": "GET",
+    "path": "/.well-known/jwks.json",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "public, max-age=300",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "keys": [
+        {
+          "e": "AQAB",
+          "n": "iQrOGU2zCJtd0Mu2XNyYKXjBSP-ByQvQ7Hu4xcpv35q0oOo94xi1zuH9ht3Hop_5xO5Quo-wU2A0ivLgxdgl_KlNXD8GuBkGXo_4ojNp7l9XRwATRJWCLEosYn50LE4FPs114etH__i4QY8Brse5W4SRNwtQhqYGhpOmxUQ8kRzutC0TND7Ib_4buPGMo9BR3J12zC0EzSidCE7d7QcZsc8u2A7evO3jrSsjqVDIK2sFMUx9lMCZYl2gI6AmiyxgJV66dMu4H8V4BnUM4TkzrAmtvBOMOKU-Nb1YD7ebnWDZj5wldMi8nLB7LMjyI4ymOjWBD5P-BuRnQZiz3fvLtQ",
+          "alg": "RS256",
+          "kid": "7b665c731ccaa79c",
+          "kty": "RSA",
+          "use": "sig"
+        }
+      ]
+    }
+  },
+  "timing": "instant"
+}

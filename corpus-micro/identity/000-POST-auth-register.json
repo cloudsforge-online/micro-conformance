@@ -1,0 +1,51 @@
+{
+  "formatVersion": 1,
+  "scenario": "identity",
+  "step": "register a throwaway account",
+  "seq": 0,
+  "target": "nimbus",
+  "request": {
+    "method": "POST",
+    "path": "/auth/register",
+    "headers": {},
+    "body": {
+      "email": "<email>",
+      "password": "<redacted>",
+      "handle": "<handle>"
+    }
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "accessToken": "<redacted>",
+      "refreshToken": "<redacted>",
+      "expiresIn": "<number>",
+      "user": {
+        "id": "<uuid>",
+        "email": "<email>",
+        "emailVerifiedAt": null,
+        "handle": "<handle>",
+        "status": "active",
+        "roles": [
+          "player"
+        ],
+        "createdAt": "<timestamp>",
+        "lastSeenAt": null
+      },
+      "organisation": {
+        "id": "<uuid>",
+        "slug": "cf-2f8b8ee1d38643",
+        "name": "cf_2f8b8ee1d38643",
+        "kind": "personal",
+        "status": "active",
+        "createdAt": "<timestamp>"
+      }
+    }
+  },
+  "timing": "fast"
+}

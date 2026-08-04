@@ -24,6 +24,7 @@
 export const PLACEHOLDER_TYPES: Readonly<Record<string, 'string' | 'number' | 'boolean'>> = {
   '<redacted>': 'string',
   '<uuid>': 'string',
+  '<request-id>': 'string',
   '<jwt>': 'string',
   '<timestamp>': 'string',
   '<email>': 'string',
@@ -137,6 +138,27 @@ export const RULES: readonly NormaliseRule[] = [
     why: 'The throwaway account picks a random handle, for the same reason as its address.',
     placeholder: '<handle>',
     matches: (v, k) => typeof v === 'string' && /^handle$/i.test(k),
+  },
+  {
+    name: 'request-id',
+    why:
+      'The micro estate puts a per-request correlation id INSIDE the error envelope — ' +
+      '`{error:{code,message,requestId}}` — and it is new since this corpus was written: the legacy ' +
+      'estate carried the id only in the `x-request-id` HEADER, which `RESPONSE_HEADERS` already ' +
+      'declines to record for exactly this reason. Without this rule every 4xx in the corpus holds a ' +
+      'value that cannot ever match, so each one compares `value-changed` on every run and can never ' +
+      'contribute an `identical`. That is the "quietly weaker corpus" §4 names, arrived at by the ' +
+      'estate adding a field rather than by a rule being too broad. ' +
+      'KEYED ON THE FIELD NAME, NEVER ON THE SHAPE: these ids are 16 characters of base36 and a ' +
+      'value-shaped rule would erase real opaque identifiers — a listing id, a bot id, an order ' +
+      'reference — wherever they happened to look similar.',
+    placeholder: '<request-id>',
+    // `typeof v === 'string'` is not redundant with the key test: the placeholder declares itself
+    // string-typed below, and the module's whole type-change detection rests on a placeholder only
+    // ever being produced from its declared type. A service that started returning a NUMERIC
+    // requestId must stay visible as a type change, not be absorbed by the field name.
+    matches: (v, k) =>
+      typeof v === 'string' && /^(requestid|request_id|correlationid|correlation_id)$/i.test(k),
   },
   {
     name: 'evm-address',

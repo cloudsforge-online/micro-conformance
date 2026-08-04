@@ -16,7 +16,7 @@
  * would be comparing two recorders as much as two estates.
  */
 
-import { resolveBase } from './env.ts'
+import { assertTlsTrust, isUnmapped, resolveBase } from './env.ts'
 import type { HarnessSecrets } from './env.ts'
 import { openCorpus } from './corpus.ts'
 import { request } from './http.ts'
@@ -47,6 +47,9 @@ export interface Recording {
 
 export async function record(options: RecordOptions): Promise<Recording> {
   const base = resolveBase(options.base)
+  // Before anything is dialled. A handshake this process cannot verify would skip every scenario
+  // and publish eight indistinguishable unknowns — see `assertTlsTrust`.
+  assertTlsTrust(base, options.base)
   const log = options.log ?? (() => {})
   const all = options.scenarios ?? ALL_SCENARIOS
   const selected = options.only?.length ? all.filter((s) => options.only?.includes(s.name)) : all
@@ -81,7 +84,10 @@ export async function record(options: RecordOptions): Promise<Recording> {
   // Nimbus keeps refresh tokens for thirty days, and a harness recording daily and never signing
   // out would leave a year of live sessions behind it.
   const account = sharedAccountOf(shared)
-  if (account) {
+  // `nimbus` unmapped means no scenario could have acquired an account in the first place, so this
+  // is unreachable rather than skipped — but it is guarded anyway, because the alternative is
+  // interpolating an object into a URL and POSTing a refresh token at `[object Object]/auth/logout`.
+  if (account && !isUnmapped(base.nimbus)) {
     const res = await request(`${base.nimbus}/auth/logout`, {
       method: 'POST',
       body: { refreshToken: account.refreshToken },

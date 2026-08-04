@@ -1,0 +1,35 @@
+{
+  "formatVersion": 1,
+  "scenario": "chain",
+  "step": "emission accounting reads back",
+  "seq": 6,
+  "target": "hearth-rest",
+  "request": {
+    "method": "GET",
+    "path": "/supply",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-origin": "*",
+      "content-type": "application/json"
+    },
+    "body": {
+      "height": "<number>",
+      "decimals": 18,
+      "symbol": "EMBER",
+      "totalSupply": "<decimal-string>",
+      "totalSupplyEmber": "<decimal-string>",
+      "circulating": "<decimal-string>",
+      "circulatingEmber": "<decimal-string>",
+      "commonsAddress": "<evm-address>",
+      "commonsIssued": "<decimal-string>",
+      "commonsBalance": "<decimal-string>",
+      "commonsIsBurnAddress": true,
+      "blockReward": "<decimal-string>"
+    }
+  },
+  "timing": "instant"
+}

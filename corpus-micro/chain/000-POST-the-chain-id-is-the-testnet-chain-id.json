@@ -1,0 +1,31 @@
+{
+  "formatVersion": 1,
+  "scenario": "chain",
+  "step": "the chain id is the testnet chain id",
+  "seq": 0,
+  "target": "hearth-rpc",
+  "request": {
+    "method": "POST",
+    "path": "/",
+    "headers": {},
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "eth_chainId",
+      "params": []
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-origin": "*",
+      "content-type": "application/json"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": "0x1cf4"
+    }
+  },
+  "timing": "instant"
+}

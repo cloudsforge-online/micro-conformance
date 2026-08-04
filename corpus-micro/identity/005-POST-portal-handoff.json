@@ -1,0 +1,33 @@
+{
+  "formatVersion": 1,
+  "scenario": "identity",
+  "step": "request a handoff code",
+  "seq": 5,
+  "target": "nimbus",
+  "request": {
+    "method": "POST",
+    "path": "/portal/handoff",
+    "headers": {
+      "authorization": "<redacted>"
+    },
+    "body": {
+      "returnUrl": "http://localhost:4006/"
+    }
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "error": {
+        "code": "not_found",
+        "message": "no route for POST /portal/handoff",
+        "requestId": "<request-id>"
+      }
+    }
+  },
+  "timing": "instant"
+}

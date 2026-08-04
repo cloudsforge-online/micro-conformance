@@ -1,0 +1,31 @@
+{
+  "formatVersion": 1,
+  "scenario": "chain",
+  "step": "net_version answers in decimal, not hex",
+  "seq": 1,
+  "target": "hearth-rpc",
+  "request": {
+    "method": "POST",
+    "path": "/",
+    "headers": {},
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "net_version",
+      "params": []
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-origin": "*",
+      "content-type": "application/json"
+    },
+    "body": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": "7412"
+    }
+  },
+  "timing": "instant"
+}
