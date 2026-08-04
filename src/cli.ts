@@ -31,7 +31,7 @@ import { compareCorpora } from './compare.ts'
 import type { ComparisonReport, Difference } from './compare.ts'
 import { loadCorpus } from './corpus.ts'
 import { postsFor, publish, type SkippedScenario } from './publish.ts'
-import { baseNames, loadSecrets } from './env.ts'
+import { assertSecretLiterals, baseNames, loadSecrets } from './env.ts'
 import { formatReconciliation, reconcileAccountClaims, sweepEstate } from './ledgeraccounts.ts'
 import { BASELINE_UNRESOLVED, MIN_SERVICES } from './ledgeraccounts.ts'
 import { record } from './record.ts'
@@ -159,6 +159,12 @@ record and compare REFUSE to run without it rather than skipping every scenario,
 handshake this process cannot verify is indistinguishable from an estate that is switched off —
 and NODE_TLS_REJECT_UNAUTHORIZED=0 is refused by name, not accepted as the answer.
 
+They REFUSE for the same reason when they cannot load the secret literals of the estate the base
+dials. Each base declares its own file — micro reads deploy/compose/estate/tokens.env, local reads
+the legacy checkout's .env — and a run armed with the wrong estate's literals, or with none, looks
+exactly like a clean one. Override the paths only when a checkout is somewhere unusual:
+  CONFORMANCE_SECRETS_FILE=<path>[,<path>]
+
 Any single service can be repointed without editing the base:
   CONFORMANCE_URL_PAY=http://gateway.internal/pay conformance compare --base micro
 `.trim()
@@ -171,13 +177,20 @@ async function main(): Promise<number> {
   }
 
   const flags = parseFlags(rest)
-  const secrets = loadSecrets()
 
   switch (command) {
+    // Loaded per command and FOR THE BASE, not once up front and for whatever estate a path walk
+    // happened to land in — see `assertSecretLiterals` for the defect that produced.
+    //
+    // Asserted HERE as well as inside `record`, and the duplication is deliberate. `record` must
+    // assert because it is the library entry point and a caller could always hand it the wrong
+    // set. The CLI must assert BEFORE it prints its run header, because that header states which
+    // estate's literals are armed — and a header that makes that claim and is then contradicted
+    // by a refusal three lines later is the same untrustworthy reporting in miniature.
     case 'record':
-      return await doRecord(flags, secrets)
+      return await doRecord(flags, secretsFor(flags.base))
     case 'compare':
-      return await doCompare(flags, secrets)
+      return await doCompare(flags, secretsFor(flags.base))
     case 'report':
       return doReport(flags)
     case 'ledger-accounts':
@@ -194,10 +207,20 @@ async function main(): Promise<number> {
 
 type Secrets = ReturnType<typeof loadSecrets>
 
+/** Load this base's estate secrets, or refuse before a single line of run output is printed. */
+function secretsFor(base: string): Secrets {
+  const secrets = loadSecrets(base)
+  assertSecretLiterals(secrets, base)
+  return secrets
+}
+
 async function doRecord(flags: Flags, secrets: Secrets): Promise<number> {
   console.log(`recording against '${flags.base}' into ${flags.out}`)
-  // The path, never the contents, and never a count that would narrow a guess at a value.
-  console.log(`secret-hygiene refusal: ${secrets.literals.length ? 'patterns + estate literals' : 'patterns only'} (${secrets.source})`)
+  // The paths, never the contents, and never a count that would narrow a guess at a value. There
+  // is no "patterns only" branch to report any more: `record` refuses that run outright, because
+  // the line saying so was printed on every legacy-literal micro recording and told nobody
+  // anything — it read "patterns + estate literals" while naming the wrong estate's file.
+  console.log(`secret-hygiene refusal: patterns + '${secrets.base}' estate literals (${secrets.source})`)
 
   const { manifest } = await record({
     base: flags.base,

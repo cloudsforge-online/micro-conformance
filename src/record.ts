@@ -16,7 +16,7 @@
  * would be comparing two recorders as much as two estates.
  */
 
-import { assertTlsTrust, isUnmapped, resolveBase } from './env.ts'
+import { assertSecretLiterals, assertTlsTrust, isUnmapped, resolveBase } from './env.ts'
 import type { HarnessSecrets } from './env.ts'
 import { openCorpus } from './corpus.ts'
 import { request } from './http.ts'
@@ -50,6 +50,12 @@ export async function record(options: RecordOptions): Promise<Recording> {
   // Before anything is dialled. A handshake this process cannot verify would skip every scenario
   // and publish eight indistinguishable unknowns — see `assertTlsTrust`.
   assertTlsTrust(base, options.base)
+  // Also before anything is dialled, and asserted for `compare` as well as `record`. `compare`
+  // writes no corpus, but it drives the same live traffic through the same recorder, and a run
+  // that cannot say which estate its literals came from cannot say it for either command. Binding
+  // the two here — the one place a base name and a secret set are both in scope — is what stops
+  // the original defect from being reintroduced by a caller rather than by this file.
+  assertSecretLiterals(options.secrets, options.base)
   const log = options.log ?? (() => {})
   const all = options.scenarios ?? ALL_SCENARIOS
   const selected = options.only?.length ? all.filter((s) => options.only?.includes(s.name)) : all

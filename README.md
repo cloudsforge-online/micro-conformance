@@ -39,8 +39,11 @@ Two things happen to every value before it is written, and the order matters:
 
 1. **Redaction, at capture.** Credentials are replaced as the interaction is built, and the
    serialiser then **refuses** to produce a fixture that still matches a hygiene pattern or holds a
-   literal value from the estate's own `.env`. A redaction pass over stored fixtures is a pass that
-   can be forgotten; a refusal at capture cannot.
+   literal value from the estate's own secret file. A redaction pass over stored fixtures is a pass
+   that can be forgotten; a refusal at capture cannot. The literal half is loaded **per base** —
+   `--base micro` reads the micro estate's `deploy/compose/estate/tokens.env`, `--base local` reads
+   the legacy checkout's `.env` — and a run that cannot load them **refuses to record at all**
+   rather than falling back to the pattern half. See §2b.
 2. **Normalisation, at capture.** Ids, timestamps, JWTs, generated addresses, block heights, market
    prices and process counters become type-carrying placeholders — `<uuid>`, `<timestamp>`,
    `<evm-address>`, `<number>` — so that two recordings of the same behaviour compare equal.
@@ -55,10 +58,14 @@ real user, no real balance, no real address, and no money moves at any point —
 
 ```bash
 pnpm install
-pnpm typecheck && pnpm test          # 89 tests, none of which needs a running estate
+pnpm typecheck && pnpm test          # 197 tests, none of which needs a running estate
 
 node --import tsx src/cli.ts record --base local --out corpus/
 ```
+
+**`record` and `compare` refuse to start unless they can load the secret literals of the estate
+the chosen base dials** — see §2b. The files are declared per base and found automatically;
+`CONFORMANCE_SECRETS_FILE=<path>[,<path>]` overrides them when a checkout is somewhere unusual.
 
 `--base local` is the compose estate as `MAP.md` §2 describes it. Custody (4005) and Pay (4003)
 are reached on `127.0.0.1` because they are **deliberately** bound to loopback; nothing here ever
@@ -244,27 +251,71 @@ comparisons are evidence against and never the evidence itself:
   the family kept. The scenario re-presents in milliseconds, so it can never reach the burn. This
   is the sharpest instance of §4's "anything it does not exercise" and the next thing worth fixing.
 
-### A KNOWN GAP IN THE HYGIENE REFUSAL ON THIS BASE — not fixed, and stated so it is not forgotten
+### THE HYGIENE REFUSAL LOADED THE WRONG ESTATE'S SECRETS — closed 2026-08-04
 
-`loadSecrets` finds the estate root by walking up for a directory holding both `docker-compose.yml`
-and `.env.example` (`src/env.ts`, `findStackRoot`). On this machine that resolves to the **legacy
-`stack` checkout**, so a `--base micro` run loads the LEGACY estate's literals. The micro estate
-keeps its secrets in `deploy/compose/.env` and `deploy/compose/estate/tokens.env`, and neither is
-read.
+This was reported here as an open limitation when `corpus-micro/` was first committed. **It is
+fixed, and nothing sensitive was recorded while it was open.** Both halves of that sentence were
+re-derived from source and from the corpus rather than carried over.
 
-**The consequence, precisely:** the refusal's *pattern* half is fully in force on this base — JWTs,
-DSNs, PEM blocks and the rest — and its *literal* half is loading the wrong estate's values. A
-micro-estate service token echoed back in a response body under an unremarkable key would not be
-matched by literal, only by pattern.
+**The mechanism.** `loadSecrets` took a *path*, defaulted from a single `STACK_ROOT` that
+`findStackRoot` derived by walking up for a directory holding both `docker-compose.yml` and
+`.env.example`. On this machine that walk lands in the **legacy `stack` checkout**
+(`/…/stack`), and nothing anywhere related the loaded secrets to the base being recorded — `cli.ts`
+called `loadSecrets()` with no argument at all and handed the result to `record({ base })`. So
+`record --base micro` armed the refusal's **literal** half with the *legacy* estate's values while
+recording *micro* traffic into a corpus committed to a **public** repository. The literal half is
+the backstop for everything the pattern half does not recognise, so on this base it was not weaker
+— it was absent.
 
-`corpus-micro/` as committed was checked by hand against this: the only long opaque strings in it
-are the RSA **public** modulus from `/.well-known/jwks.json` — which is the thing the `health`
-scenario exists to characterise — and the chain's genesis hash, which `chain` deliberately keeps
-comparable. Nothing else survives unredacted; `<redacted>` appears 26 times.
+**Why nobody saw it.** A refusal that cannot fire and a refusal that never had to fire produce
+byte-identical output. The run even printed `secret-hygiene refusal: patterns + estate literals`,
+which was true of a different estate. That is this repository's named defect class, *a check that
+cannot fail*.
 
-Fixing it means teaching `loadSecrets` about a second estate layout, which is a change to the most
-safety-critical path in this repository and was deliberately not made in the same commit as the
-base that revealed it.
+**What changed** (`src/env.ts`, `src/record.ts`, `src/cli.ts`):
+
+- Each base **declares its own secret files**. `micro` → `deploy/compose/estate/tokens.env`, the
+  gitignored file `deploy/scripts/estate-bootstrap.sh` generates and every service is booted from
+  (`deploy/compose/.env` is a symlink to it). `local` → the legacy checkout's `.env`, unchanged.
+  The micro checkout is found by a marker the legacy one does not have (`deploy/compose` beside
+  `deploy/gateway`), not by counting directory levels.
+- `loadSecrets` takes a **base name, not a path**, and the result carries the base it was loaded
+  for. `record` refuses when that does not match the base being recorded — which makes the original
+  arrangement *unrepresentable* rather than merely corrected.
+- **Three refusals, in the shape `assertTlsTrust` established:** by name, saying what to set. The
+  literals belong to another estate; the declared file could not be read; the file was read and
+  held no literals. All three used to be silent, and the third matters as much as the second — an
+  empty literal set is a refusal that cannot fire.
+- **The "absent file is a supported mode" allowance is gone.** Its stated justification was "a CI
+  runner that has the services but not the operator's file must still be able to record". No CI job
+  in this repository has ever recorded — `.github/workflows/ci.yml` runs the typecheck and the pure
+  suite and says so in its own header — so that allowance bought nothing and cost the whole literal
+  half. `CONFORMANCE_SECRETS_FILE=<path>[,<path>]` repoints the files explicitly; there is no
+  implicit degradation.
+
+`deploy/compose/testnet.env` is deliberately **not** loaded: it holds `CF_PROJECT`, `CF_NET_PREFIX`
+and port bases, and putting ordinary infrastructure substrings into the refusal set would produce
+false refusals on legitimate response bodies, which is how a hygiene check gets switched off.
+
+**Was anything sensitive recorded? No.** Re-verified against the corrected literal set rather than
+by eye:
+
+- Every one of the **30** literals `tokens.env` yields was fed through `findSecretLeak` inside a
+  realistic fixture; all 30 are caught, so the arming is demonstrably not vacuous.
+- Both `corpus-micro/` (27 files) and `corpus/` (61 files) were replayed through the real refusal
+  armed with the micro estate's literals. **0 files refused.** The same sweep run against
+  `tessera/.env` — the one other real secret file in the checkout — also found nothing.
+- The only opaque runs of ≥28 characters in `corpus-micro/` are three, and each was identified:
+  the RSA **public** modulus `n` from `/.well-known/jwks.json` (the JWK carries `e`, `n`, `alg`,
+  `kid`, `kty`, `use` and **no** `d`, `p` or `q` — it is a public key, and characterising it is
+  what the `health` scenario is for); the chain's 66-character `0x` genesis hash, which `chain`
+  deliberately keeps comparable; and the CORS header name `access-control-allow-credentials`.
+- A full `record --base micro` was re-run with the corrected literals armed. It completed, no
+  refusal fired, and it reproduced the committed corpus except for the throwaway account's
+  generated slug and one timing bucket.
+
+The predecessor's hand check reached the same conclusion, and it was right — but it was right by
+inspection, which is the thing that check exists to replace.
 
 ---
 

@@ -62,7 +62,11 @@ function deps(collected: Interaction[]) {
   } as BaseUrls
   return {
     base,
-    secrets: { literals: [], source: 'test', payServiceToken: undefined },
+    // The driver never consults `literals` — the refusal they arm lives at the corpus write, and
+    // these tests write no corpus. `base` and `missing` are present because the type demands they
+    // always be, which is the point of them: no `HarnessSecrets` can exist without saying which
+    // estate it came from.
+    secrets: { literals: [], source: 'test', payServiceToken: undefined, base: 'test', missing: [] },
     shared: new Map<string, unknown>(),
     onInteraction: (i: Interaction) => collected.push(i),
     // No real waiting: the retry is being tested, not the clock.
