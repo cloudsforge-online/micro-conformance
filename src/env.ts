@@ -64,10 +64,23 @@ export type Target = (typeof TARGETS)[number]
  * (`beacon/src/conformance.ts:100-108`) uses to call a run a pass rather than a skip, so a stable
  * 404 is indistinguishable from a stable contract to everything downstream.
  *
- * An unmapped target skips the scenario instead, carrying this reason into the manifest and into
- * `POST /v1/conformance` as a zero-count row, which Beacon derives as `skip` and the gate reports
- * as `conformance_inconclusive` — an unknown that refuses and cannot be waived. That is the
- * designed behaviour for "nobody found out", and it is the honest answer here.
+ * An unmapped target skips the scenario instead, carrying this reason into the manifest. That is
+ * the designed behaviour for "nothing was dialled", and it is the honest answer here.
+ *
+ * ── WHAT HAPPENS TO THAT SKIP AFTERWARDS IS A SEPARATE DECISION, AND IT IS NOT MADE HERE ──────
+ *
+ * Until 2026-08-04 the skip was published to `POST /v1/conformance` as a zero-count row, Beacon
+ * derived `skip`, and the gate reported `conformance_inconclusive` — an unknown that refuses and
+ * cannot be waived. For a service that is merely down that is exactly right and still what
+ * happens. For the four rows below it was wrong: those servers are gone permanently, so the
+ * unknown could never resolve, and a gate that can never go green is a gate people learn to
+ * override.
+ *
+ * `applicability.ts` draws that line, and only it may: a suite is withheld from the publish only
+ * on a claim that names the successor covering the same capability, and only when that successor
+ * is proved to have run and compared in the same run. Unmapping a target does NOT retire a suite —
+ * the two mechanisms are deliberately separate, so that adding an `unmapped(...)` row can never by
+ * itself remove a suite from the gate's sight.
  * ══════════════════════════════════════════════════════════════════════════════════════════════
  */
 export interface UnmappedTarget {
@@ -153,7 +166,7 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
    * Through the gateway, on the estate's own CA, never `curl -k`. The hostnames come from the
    * surface registry (`ui/packages/ui/src/surfaces.ts`) — which is the single source of truth and
    * contains the one host whose name does not match its key: `keyvault` has the subdomain
-   * **`vault`** (surfaces.ts:812-816) — reconciled against the routers that actually serve them in
+   * **`vault`** (surfaces.ts:814-818) — reconciled against the routers that actually serve them in
    * `deploy/gateway/dynamic/estate-web.yml`.
    *
    * ── EVERY ROW BELOW WAS MEASURED, NOT REASONED ABOUT ─────────────────────────────────────────
@@ -171,7 +184,7 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
     // ── MAPPED ───────────────────────────────────────────────────────────────────────────────
     //
     // `micro-identity` kept Nimbus's unversioned auth surface wholesale. `cf-web-nimbus` routes
-    // the WHOLE host to it (estate-web.yml:663-667) because "identity serves 34 unversioned routes
+    // the WHOLE host to it (estate-web.yml:754-758) because "identity serves 34 unversioned routes
     // at the root", so the paths this corpus knows resolve unchanged:
     //
     //   /.well-known/jwks.json  200   /auth/me  401 (refusing anonymously, as recorded)
@@ -237,14 +250,14 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
      */
 
     // `pay.<apex>` is routed WHOLE to micro-wallet at priority 500 (`cf-web-pay`,
-    // estate-web.yml:793-797), with four billing prefixes carved out above it at 600 — so the
+    // estate-web.yml:822-826), with four billing prefixes carved out above it at 600 — so the
     // same host serves two services and they are two targets here. GET /v1/wallets, /v1/deposits,
     // /v1/deposits/credits, /v1/withdrawals and /v1/portfolio all answer 401 anonymously and 200
-    // to an identity token (wallet/src/server.ts:445-806).
+    // to an identity token (wallet/src/server.ts:477-827).
     'micro-wallet': gateway('pay'),
 
     // The carve-out: `/entitlements`, `/products`, `/purchases`, `/subscriptions` at priority 600
-    // (`cf-api-pay-billing`, estate-web.yml:798-802) reach micro-billing on the same hostname
+    // (`cf-api-pay-billing`, estate-web.yml:827-831) reach micro-billing on the same hostname
     // (billing/src/server.ts:375-580). Only the two READ routes and the catalogue are recorded —
     // `/purchases` spends.
     'micro-billing': gateway('pay'),
@@ -258,8 +271,8 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
     // estate-web.yml:251-255).
     'micro-trade': gateway('trade'),
 
-    // `worlds-api.<apex>` is routed WHOLE to micro-worlds (`cf-api-worlds`,
-    // estate-web.yml:299-303) — an API hostname with no bundle on it, which is why this one needs
+    // `worlds-api.<apex>` is routed WHOLE to micro-worlds (`cf-api-worlds-api`,
+    // estate-web.yml:327-331) — an API hostname with no bundle on it, which is why this one needs
     // no `/v1` guard. `worlds.<apex>/v1` reaches the same service; the api hostname is used
     // because it cannot lose a priority tie to a bundle.
     'micro-worlds': gateway('worlds-api'),
@@ -270,11 +283,11 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
     // operator reads in Beacon, so they say what is true rather than "not available".
     pay: unmapped(
       'no address serves the recorded payments surface: `micro-wallet` answers pay.<apex> ' +
-        '(estate-web.yml:793-797) and 404s /wallet, /coins/rates, /deposit-coins, ' +
+        '(estate-web.yml:822-826) and 404s /wallet, /coins/rates, /deposit-coins, ' +
         '/withdrawal-coins, /deposits and /withdrawals — it serves /v1/wallets, /v1/deposits and ' +
-        '/v1/withdrawals instead (wallet/src/server.ts:445-806). Of the eleven paths this corpus ' +
+        '/v1/withdrawals instead (wallet/src/server.ts:477-827). Of the eleven paths this corpus ' +
         'asks of `pay`, exactly one survives: /entitlements, which billing answers through the ' +
-        'narrow router at estate-web.yml:798-802. THE CAPABILITY IS RECORDED — by the ' +
+        'narrow router at estate-web.yml:827-831. THE CAPABILITY IS RECORDED — by the ' +
         '`micro-wallet` and `micro-entitlements` suites, against those addresses',
     ),
     game: unmapped(

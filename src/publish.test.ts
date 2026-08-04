@@ -62,17 +62,44 @@ test('a skipped scenario is never omitted from the publish', () => {
   // Omitting it would be worse than useless. The gate's other conformance input is whether ANY
   // row exists, so publishing the one that ran and dropping the one that did not is how a partial
   // estate certifies itself.
+  //
+  // The ONE exception is `withheld`, below — a suite proved not to apply to this base at all — and
+  // it is not decided here. Note that neither of these two carries a `withheld` entry, so both are
+  // published: a suite is not dropped by having a reason that mentions a successor.
   const posts = postsFor(
     report([]),
     new Map([['chain', 7]]),
     [
       { name: 'identity', reason: 'not deployed' },
-      { name: 'wallet', reason: 'not deployed' },
+      { name: 'wallet', reason: 'not deployed, covered by micro-wallet' },
     ],
   )
   assert.deepEqual(
     posts.map((post) => post.suite).sort(),
     ['chain', 'identity', 'wallet'],
+  )
+})
+
+test('a suite proved not applicable to this base is withheld from the publish', () => {
+  // The narrow exception. `wallet` does not exist on this base — see `applicability.ts` for the
+  // seven rules that had to hold before its name could appear in `withheld` — so posting it as a
+  // skip would create an unknown that can never resolve.
+  const posts = postsFor(
+    report([]),
+    new Map([['chain', 7], ['micro-wallet', 6]]),
+    [{ name: 'wallet', reason: 'pay is not mapped in this base' }],
+    { withheld: ['wallet'] },
+  )
+  assert.deepEqual(posts.map((post) => post.suite).sort(), ['chain', 'micro-wallet'])
+})
+
+test('A WITHHELD SUITE THAT COMPARED INTERACTIONS THROWS RATHER THAN BEING DROPPED', () => {
+  // The contradiction that must never resolve quietly: a suite that reached the estate is
+  // published on its own evidence. Dropping it here would delete a real comparison — including,
+  // one day, a breaking one.
+  assert.throws(
+    () => postsFor(report([]), new Map([['wallet', 6]]), [], { withheld: ['wallet'] }),
+    /compared 6 interaction\(s\)/,
   )
 })
 

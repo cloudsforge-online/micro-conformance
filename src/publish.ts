@@ -98,17 +98,51 @@ function classify(differences: readonly Difference[], scenario: string): {
  * and the gate reports `conformance_inconclusive`. Omitting it would be worse than useless: the
  * gate's only other conformance input is whether ANY row exists, so publishing the seven that ran
  * and quietly dropping the one that did not is precisely how a partial estate certifies itself.
+ *
+ * ──────────────────────────────────────────────────────────────────────────────────────────────
+ * **`withheld` IS THE ONE EXCEPTION, AND IT IS NOT DECIDED HERE.**
+ *
+ * A suite that does not APPLY to this base is a different fact from a suite that should have run
+ * and could not, and publishing the first as the second creates an unknown that can never resolve
+ * — a gate that cannot go green, which is a gate people learn to override. `applicability.ts`
+ * decides which suites those are, against seven rules that are checked at import and against the
+ * run itself; by the time a name reaches this function its successor has already been proved to
+ * have run and compared.
+ *
+ * This function's only job in that arrangement is the assertion below: a withheld suite that
+ * compared interactions is a contradiction, and it throws rather than dropping the row. That is
+ * defence in depth against a future caller that computes `withheld` some other way.
+ * ──────────────────────────────────────────────────────────────────────────────────────────────
  */
 export function postsFor(
   report: ComparisonReport,
   comparedByScenario: ReadonlyMap<string, number>,
   skipped: readonly SkippedScenario[],
-  options: { readonly release?: string | undefined; readonly corpusRef?: string | undefined } = {},
+  options: {
+    readonly release?: string | undefined
+    readonly corpusRef?: string | undefined
+    /** Suites `applicability.ts` has proved do not apply to this base. Never published. */
+    readonly withheld?: readonly string[]
+  } = {},
 ): readonly ConformancePost[] {
+  const withheld = new Set(options.withheld ?? [])
+  for (const suite of withheld) {
+    const compared = comparedByScenario.get(suite) ?? 0
+    if (compared > 0) {
+      throw new Error(
+        `'${suite}' is marked not applicable to this base and yet compared ${compared} ` +
+          'interaction(s). A suite that reached the estate is published on its own evidence — ' +
+          'withholding it would delete a real comparison, which is the one thing this must never do.',
+      )
+    }
+  }
+
   const skippedByName = new Map(skipped.map((entry) => [entry.name, entry]))
   const scenarios = [
     ...new Set([...comparedByScenario.keys(), ...skipped.map((entry) => entry.name)]),
-  ].sort()
+  ]
+    .filter((scenario) => !withheld.has(scenario))
+    .sort()
 
   const tag = {
     ...(options.release === undefined ? {} : { release: options.release }),

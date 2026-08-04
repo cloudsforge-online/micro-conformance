@@ -58,7 +58,7 @@ real user, no real balance, no real address, and no money moves at any point —
 
 ```bash
 pnpm install
-pnpm typecheck && pnpm test          # 205 tests, none of which needs a running estate
+pnpm typecheck && pnpm test          # 223 tests, none of which needs a running estate
 
 node --import tsx src/cli.ts record --base local --out corpus/
 ```
@@ -95,8 +95,9 @@ CONFORMANCE_URL_PAY=http://gateway.internal/pay \
 | `chain` | `eth_chainId`, `net_version`, `eth_blockNumber`, `eth_getBalance` on 8545; REST `/info` and `/supply` on 8645 |
 
 The five rows above them — `wallet`, `entitlements`, `mint`, `trade`, `game` — characterise the
-**legacy** estate and skip against `--base micro`, because those resources were redesigned rather
-than re-hosted. The same five capabilities on the micro estate have their own suites:
+**legacy** estate. Against `--base micro` they skip and are then **withheld from the publish as
+not applicable** (§2d), because those resources were redesigned rather than re-hosted and each
+capability is characterised by a successor suite in the same run:
 
 | Scenario | Covers | Succeeds |
 | --- | --- | --- |
@@ -171,6 +172,11 @@ publish: the gate's other conformance input is whether *any* row exists, so publ
 that ran and quietly omitting the ones that did not is exactly how a partial estate would certify
 itself.
 
+> **That rule is narrowed once, and only once — see [§2d](#2d-a-suite-that-does-not-apply-is-not-a-suite-that-could-not-run).**
+> It is correct for *"this scenario should have run here and could not"*, and wrong for *"this
+> scenario does not apply to this base at all"*. The two were indistinguishable until 2026-08-04,
+> and that conflation produced five unknowns that could never resolve.
+
 ---
 
 ## 2b. The micro baseline, and the finding that came with it
@@ -242,14 +248,14 @@ what makes that replacement provable. `wallet`, `mint`, `trade` and `game` see o
 | `health` | `pass` | jwks and `/info` answer; eight `/health` routes are gone and recorded as gone. |
 | `identity` | `pass` | Register, `/auth/me`, rotation and password change all replay. |
 | `micro-wallet`, `micro-entitlements`, `micro-mint`, `micro-trade`, `micro-worlds` | `pass` | The five capabilities, at the addresses that serve them. 24 interactions, every one `application/json`, no 5xx. |
-| `wallet`, `entitlements`, `mint`, `trade`, `game` | `skip` | The five LEGACY contracts, which nothing on this estate serves → five `conformance_inconclusive`. |
+| `wallet`, `entitlements`, `mint`, `trade`, `game` | **not published** | The five LEGACY contracts, which nothing on this estate serves and nothing on it ever will again. Withheld under [§2d](#2d-a-suite-that-does-not-apply-is-not-a-suite-that-could-not-run), each naming the successor above that covered it *in the same run*. |
 
-**The five skips are unchanged and they are still the correct outcome.** They are not the same
-statement as "the capability is unmeasured": each legacy reason now ends by naming the successor
-suite that records the capability. What the gate is told is precise — *the legacy wallet contract
-has no evidence on this estate, and the wallet capability has a baseline of its own* — and it is
-still an unknown that cannot be waived, because a legacy contract with no server is exactly what
-an unknown is for.
+**Those five were published as `skip` until 2026-08-04 and that was wrong** — not wrong about the
+estate, wrong about which question was being answered. A `skip` says *nobody found out*, and it is
+built to resolve when somebody does. Nobody ever will here: the servers are gone permanently. Five
+unknowns that can never resolve make a gate that can never go green, which is a gate people learn
+to override, and then it protects nothing. §2d is the distinction that retires them and the seven
+rules that stop it being used on anything else.
 
 Three things this baseline is **not** evidence of, stated because a recording is the thing later
 comparisons are evidence against and never the evidence itself:
@@ -349,11 +355,11 @@ Every address below was measured on 2026-08-04 through the gateway on the estate
 
 | Capability | Legacy suite asked | What serves it now | Evidence |
 | --- | --- | --- | --- |
-| Wallet | `pay` `/wallet`, `/coins/rates`, `/deposit-coins` | `micro-wallet` at `pay.<apex>`, whole host at priority 500 (`estate-web.yml:793-797`) | `/v1/wallets`, `/v1/portfolio`, `/v1/deposits`, `/v1/deposits/credits`, `/v1/withdrawals` — `wallet/src/server.ts:445-806` |
-| Entitlements | `pay` `/cosmetics`, `/convenience`, `/season-pass`, `/private-worlds` | `micro-billing`, four prefixes carved out at priority 600 (`estate-web.yml:798-802`) | One `GET /products` replaces all four arrays; seeded by `billing/src/migrations.ts:391` |
+| Wallet | `pay` `/wallet`, `/coins/rates`, `/deposit-coins` | `micro-wallet` at `pay.<apex>`, whole host at priority 500 (`estate-web.yml:822-826`) | `/v1/wallets`, `/v1/portfolio`, `/v1/deposits`, `/v1/deposits/credits`, `/v1/withdrawals` — `wallet/src/server.ts:477-827` |
+| Entitlements | `pay` `/cosmetics`, `/convenience`, `/season-pass`, `/private-worlds` | `micro-billing`, four prefixes carved out at priority 600 (`estate-web.yml:827-831`) | One `GET /products` replaces all four arrays; seeded by `billing/src/migrations.ts:391` |
 | Mint | `mint` `/chains`, `/offers`, `/capabilities` | `micro-mint` at `create.<apex>/v1` (`estate-web.yml:238-242`) | `/v1/catalogue`, `/v1/tokens` — `mint/src/server.ts:354-441` |
-| Trade | `crucible` `/catalog` | `micro-trade` at `trade.<apex>/v1` (`estate-web.yml:251-255`) | `/v1/strategies`, `/v1/capabilities` — `trade/src/server.ts:341-370` |
-| Game | `game` `/worlds`, `/cosmetics` | `micro-worlds` at `worlds-api.<apex>`, whole host (`estate-web.yml:299-303`) | `/v1/titles`, `/v1/players/me`, `/v1/provisions` — `worlds/src/server.ts:507-741` |
+| Trade | `crucible` `/catalog` | `micro-trade` at `trade.<apex>/v1` (`estate-web.yml:251-255`) | `/v1/strategies`, `/v1/capabilities` — `trade/src/server.ts:341-360` |
+| Game | `game` `/worlds`, `/cosmetics` | `micro-worlds` at `worlds-api.<apex>`, whole host (`cf-api-worlds-api`, `estate-web.yml:327-331`) | `/v1/titles`, `/v1/players/me`, `/v1/provisions` — `worlds/src/server.ts:507-682` |
 
 **The successor suites are new suites, not the old ones repointed.** That distinction is the whole
 of §2b's argument carried forward: a legacy suite pointed at a successor address records 404s as
@@ -401,6 +407,115 @@ The same rule is why `GET /v1/portfolio` is in the baseline: its body carries a 
 naming the sources it could not read. It recorded `[]`. A corpus taken while that array was
 non-empty would be a corpus of a partly-blind estate, and recording the field is what makes the
 difference visible instead of invisible.
+
+---
+
+## 2d. A suite that does not apply is not a suite that could not run
+
+`src/applicability.ts`, added 2026-08-04.
+
+Two different facts were being published as one:
+
+| | What it means | What it should do |
+| --- | --- | --- |
+| **skip** | *"This scenario should have run here and could not."* A refused connection, an unreachable host, a credential nobody supplied. | Publish with zero counts → Beacon derives `skip` → the gate reports `conformance_inconclusive`, an unknown that refuses and **cannot be waived**. It resolves when the estate is whole. |
+| **not applicable** | *"This scenario does not apply to this base at all."* The surface was not switched off, it was **replaced**, and the capability is characterised by a different suite in the same run. | Not published. There is no question outstanding. |
+
+Publishing the second as the first is what produced five `conformance_inconclusive` unknowns that
+**could never resolve** — the legacy servers are gone permanently — and a permanently indeterminate
+gate is not a safe default. `beacon/src/gate.ts:140-152` returns `refuse` on any unknown *before it
+looks at anything else*, and an override cannot reach one. So the gate could never go green, for a
+reason already fully understood and already covered by five passing suites. A gate that can never
+go green is a gate people learn to override, and then it protects nothing.
+
+### This is also exactly how somebody would silence a real gap, so it is built as an attack surface
+
+A suite may be withheld **only** by a claim that names the suite covering the same capability in
+the same base, and that claim is checked against the run being published — not against a comment.
+Seven rules, four at import and three per run; failing any one **rejects the claim, publishes the
+suite as an ordinary skip, and exits non-zero**:
+
+| | Rule | Why |
+| --- | --- | --- |
+| S1 | `coveredBy` is a real scenario in the catalogue | "covered by `micro-wallett`" silences a suite and covers nothing, and nothing downstream could tell — Beacon simply never sees the suite again |
+| S2 | `coveredBy` is not the suite itself | otherwise a suite retires on its own authority |
+| S3 | `coveredBy` is not itself withheld in this base | no chains, no cycles; otherwise two suites go quiet on one run of a third |
+| S4 | the reason cites at least one `path:line` | an uncited retirement cannot be re-checked, which is how a stale reason outlives the arrangement it described — **three of this file's own citations had drifted by up to 30 lines when this was written**, and they are corrected above |
+| R1 | the suite **skipped** in this replay | a suite that reached the estate is published on its own evidence; a stale declaration must never suppress a working suite |
+| R2 | the suite has **no baseline interactions** in the corpus being compared | if it has, it applied when the baseline was recorded, so skipping now is a recorded-then-skipped regression and withholding it would delete the evidence |
+| R3 | `coveredBy` **ran in this replay and compared ≥ 1 interaction** | a dangling or skipped successor is the abuse case. "Covered by X" where X also skipped covers nothing, and *both* suites would have gone quiet on one unchecked sentence |
+
+`src/applicability.test.ts` asserts the refusal in every one of those seven cases and the happy
+path once. Each of the eleven guards was individually deleted and the suite re-run: every deletion
+turns exactly one test red, and the right one. A rule nobody can make fail is the defect class this
+repository keeps finding, and this mechanism is precisely where one would hide.
+
+Transport failure, an unreachable host, and a scenario with **no declared successor** all still
+publish a skip and remain unknowns. Nothing about that is widened.
+
+### The five, and the successor that covers each
+
+Declared in `src/applicability.ts` for base `micro` only. `local` declares nothing although the
+mirror claim is probably true — it cannot be verified, because eight of the legacy estate's ten
+services refuse connections (§2a), and an unverified retirement is the abuse case even when it
+happens to be right.
+
+| Retired | Covered by | Verified 2026-08-04 |
+| --- | --- | --- |
+| `wallet` | `micro-wallet` | `/wallet`, `/coins/rates`, `/deposit-coins`, `/withdrawal-coins`, `/deposits`, `/withdrawals` → **404 `application/json`** from the service's own handler; none of the six appears anywhere in `wallet/src` (`wallet/src/server.ts:477-827`) |
+| `entitlements` | `micro-entitlements` | `/cosmetics`, `/convenience`, `/season-pass`, `/private-worlds` → **404**; `/entitlements` → **401**, answered by billing at the same path (`billing/src/server.ts:375-580`, `estate-web.yml:827-831`) |
+| `mint` | `micro-mint` | `/chains`, `/offers`, `/capabilities` → **404 `text/html`**; `GET /tokens` → **200 `text/html`**, the SPA shell. Only `/v1` reaches the service (`estate-web.yml:238-242`, `mint/src/server.ts:354-441`) |
+| `trade` | `micro-trade` | `/catalog`, `/billing` → **404 `text/html`**; `GET /bots`, `/backtests` → **200 `text/html`**, the shell that would have compared identical forever (`estate-web.yml:251-255`, `trade/src/server.ts:341-590`) |
+| `game` | `micro-worlds` | `/worlds`, `/cosmetics` → **404 `application/json`**; neither appears anywhere in `worlds/src` (`worlds/src/server.ts:507-682`, `cf-api-worlds-api`, `estate-web.yml:327-331`) |
+
+Each successor `pass`ed in the same run that withheld its ancestor — that is R3, and it is checked,
+not asserted here.
+
+### The rows already published had to be withdrawn by hand, and the harness now says so
+
+`latestConformance` is `distinct on (suite) … order by suite, ts desc` with no age limit, and
+Beacon exposes no withdrawal route (`GET` and `POST /v1/conformance`, nothing else). **So retiring
+a suite here does not remove a row published before the retirement**: the newest row for `wallet`
+stayed a `skip` and the gate went on reporting `conformance_inconclusive` for a suite this estate
+no longer has, for ever.
+
+Fifteen such rows existed — five suites × three publishes, all `skip`, all `0/0/0/1`, all written
+by this harness between 09:03 and 09:55 on 2026-08-04, all carrying `release_tag` in
+`{conformance-micro-baseline, micro-baseline-2026-08-04}` and `corpus_ref` `micro@2026-08-04T…`.
+Their entire information content is that sentence. They were withdrawn in one transaction, with a
+predicate narrow enough that no row holding an actual comparison could be caught by it:
+
+```sql
+delete from conformance_runs
+ where suite in ('wallet','entitlements','mint','trade','game')
+   and status = 'skip' and identical = 0 and benign = 0 and breaking = 0;
+-- DELETE 15
+```
+
+**`compare --beacon` now asks Beacon which suites it still holds and fails the run on any retired
+one it finds.** That check was watched to fail — it named all five rows above, before they were
+withdrawn — and it is what stops this becoming a manual step somebody has to remember. A withheld
+suite that reappears in Beacon is loud, not silent.
+
+### What the gate says now
+
+`GET /v1/gate?release=micro-baseline-2026-08-04`, 2026-08-04, after republishing:
+
+```json
+{ "decision": "refuse", "promote": false, "indeterminate": false,
+  "reasons": [
+    { "code": "error_budget_exhausted", "subject": "ecosystem.trial-balance.runs", "determinacy": "known" },
+    { "code": "error_budget_exhausted", "subject": "identity.handoff.runs",        "determinacy": "known" },
+    { "code": "error_budget_exhausted", "subject": "identity.register.runs",       "determinacy": "known" },
+    { "code": "error_budget_exhausted", "subject": "identity.signin.runs",         "determinacy": "known" } ],
+  "waived": [] }
+```
+
+**`"indeterminate": false` is the whole change.** Conformance contributes no reason at all: eight
+suites, all `pass`, none stale. The gate still refuses, and it refuses on four **known** reasons
+about error budgets, which are somebody's to fix or to waive — a decision a human can be
+accountable for. That is what a fail-closed gate is supposed to feel like. Before this, it refused
+`"indeterminate": true` on five unknowns nobody could ever clear and nobody was allowed to waive.
 
 ---
 
@@ -753,6 +868,10 @@ src/
   redact.ts        redaction at capture, and the refusal
   corpus.ts        read and write, and the refusal's last chance
   scenario.ts      defineScenario, the context, the driver
+  env.ts           the bases, the unmapped targets, the TLS and secret refusals
+  publish.ts       one conformance run per scenario, posted to Beacon
+  applicability.ts which suites apply to a base, and the seven rules that keep a
+                   retirement from silencing a real gap
   cli.ts           record / compare / report / ledger-accounts / body-scan
   ledgeraccounts.ts the estate-wide account-type sweep and its chart
   bodyscan.ts      the estate-wide response-body scan, its vocabulary and its blind spot

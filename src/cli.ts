@@ -27,6 +27,7 @@ import {
   reconcileBodyScan,
   scanEstate,
 } from './bodyscan.ts'
+import { resolveApplicability } from './applicability.ts'
 import { compareCorpora } from './compare.ts'
 import type { ComparisonReport, Difference } from './compare.ts'
 import { loadCorpus } from './corpus.ts'
@@ -122,6 +123,11 @@ conformance — the CloudsForge characterisation harness
            estate has ever called. A scenario that could not run is posted with zero
            counts, so Beacon derives a skip and the gate stays indeterminate rather
            than being told the estate is fine by the scenarios that did run.
+
+           A scenario that does not APPLY to this base — its surface was replaced, not
+           switched off — is withheld instead, and only on a claim naming a successor
+           suite that ran and compared in the same run. Exits 1 if such a claim does
+           not hold, or if Beacon still carries a row for a suite this base retired.
 
   report   [--corpus corpus/]
            Summarise a recorded corpus: what it covers, what skipped, and why.
@@ -277,12 +283,18 @@ async function doCompare(flags: Flags, secrets: Secrets): Promise<number> {
   // It runs whether the comparison passed or failed, and the exit code is unchanged by it: a
   // breaking comparison is exactly the result the gate most needs to be told about, and a publish
   // failure must not turn a red comparison green or a green one red.
+  //
+  // It DOES exit non-zero on a refused not-applicable claim, and that is not an exception to the
+  // paragraph above: a rejected claim is a defect in this harness's own configuration, in exactly
+  // the class as an unreadable secret file or an untrusted CA. The comparison's verdict is
+  // untouched; what fails is the run.
   // ────────────────────────────────────────────────────────────────────────────────────────────
+  let publishRefused = false
   if (flags.beacon) {
-    await publishComparison(report, baseline, replay, flags)
+    publishRefused = await publishComparison(report, baseline, replay, flags)
   }
 
-  return report.breaking ? 1 : 0
+  return report.breaking || publishRefused ? 1 : 0
 }
 
 /**
@@ -293,23 +305,41 @@ async function doCompare(flags: Flags, secrets: Secrets): Promise<number> {
  * replay would let a scenario that recorded fewer interactions than it used to report a smaller
  * denominator and therefore a healthier-looking run. `compare` already classes recorded-then-
  * skipped as breaking for the same reason.
+ *
+ * Returns true if the publish was REFUSED — a not-applicable claim that did not hold, or a suite
+ * Beacon still carries that this base has retired. Both make the run exit non-zero.
  */
 async function publishComparison(
   report: ComparisonReport,
   baseline: ReturnType<typeof loadCorpus>,
   replay: Awaited<ReturnType<typeof record>>,
   flags: Flags,
-): Promise<void> {
+): Promise<boolean> {
   const token = flags.beaconToken || process.env['BEACON_TOKEN'] || ''
   if (!token) {
     console.error('\n--beacon needs --beacon-token or BEACON_TOKEN; nothing was published')
-    return
+    return false
   }
 
-  const comparedByScenario = new Map<string, number>()
+  const baselineByScenario = new Map<string, number>()
   for (const interaction of baseline.interactions) {
-    comparedByScenario.set(interaction.scenario, (comparedByScenario.get(interaction.scenario) ?? 0) + 1)
+    baselineByScenario.set(interaction.scenario, (baselineByScenario.get(interaction.scenario) ?? 0) + 1)
   }
+  const comparedByScenario = new Map(baselineByScenario)
+
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+  // WHICH SUITES APPLY TO THIS BASE AT ALL, decided against the run rather than against a comment.
+  //
+  // Resolved BEFORE the skip list is built, because a rejected claim has to be able to put its
+  // suite back into that list. See `applicability.ts` for the seven rules and for why a suite that
+  // does not apply is a different fact from a suite that could not run.
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+  const applicability = resolveApplicability({
+    baseName: flags.base,
+    replay: replay.manifest.scenarios,
+    baselineByScenario,
+  })
+  const withheld = applicability.withheld.map((claim) => claim.scenario)
 
   // A scenario the REPLAY could not run. Its reason is carried through to Beacon's operator, which
   // is the whole difference between "conformance is indeterminate" and "conformance is
@@ -322,6 +352,7 @@ async function publishComparison(
   const posts = postsFor(report, comparedByScenario, skipped, {
     corpusRef: `${baseline.manifest.base}@${baseline.manifest.recordedAt}`,
     ...(flags.release ? { release: flags.release } : {}),
+    withheld,
   })
 
   const results = await publish(posts, {
@@ -331,9 +362,92 @@ async function publishComparison(
 
   const failed = results.filter((result) => !result.ok)
   console.log(`\npublished ${results.length - failed.length}/${results.length} suites to ${flags.beacon}`)
-  for (const scenario of skipped) console.log(`  skip  ${scenario.name} — ${scenario.reason}`)
+  for (const scenario of skipped) {
+    if (withheld.includes(scenario.name)) continue
+    console.log(`  skip  ${scenario.name} — ${scenario.reason}`)
+  }
+  for (const claim of applicability.withheld) {
+    console.log(`  n/a   ${claim.scenario} — does not apply to base '${flags.base}'; covered by ` +
+      `'${claim.coveredBy}', which ran and compared ${baselineByScenario.get(claim.coveredBy) ?? 0} ` +
+      `interaction(s) in this run — ${claim.reason}`)
+  }
   for (const result of failed) {
     console.error(`  FAILED ${result.suite} — HTTP ${result.status} ${result.error ?? ''}`)
+  }
+
+  let refused = false
+  for (const rejection of applicability.rejected) {
+    refused = true
+    console.error(
+      `\n  REFUSED the not-applicable claim for '${rejection.claim.scenario}' (covered by ` +
+        `'${rejection.claim.coveredBy}'): ${rejection.why}\n` +
+        `  It was published as an ordinary skip, so the gate will report conformance_inconclusive ` +
+        'for it — which is the correct answer and the reason this run fails.',
+    )
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+  // A WITHHELD SUITE THAT BEACON STILL CARRIES IS STILL AN UNKNOWN, AND SILENCE ABOUT IT WOULD BE
+  // THE WHOLE DEFECT AGAIN.
+  //
+  // `latestConformance` is `distinct on (suite)` — the newest row per suite, with no age limit and
+  // no withdrawal route on the API. So retiring a suite in this repository does not remove a row
+  // published before the retirement: the gate goes on reporting `conformance_inconclusive` for it
+  // for ever, and this run would print a clean publish while the gate stayed red for a reason the
+  // operator has no way to connect to anything. Asking Beacon is the only way to know.
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+  const stale = await staleSuites(flags.beacon, token, withheld)
+  for (const suite of stale) {
+    refused = true
+    console.error(
+      `\n  Beacon still carries a '${suite.suite}' row (status ${suite.status}, recorded ` +
+        `${suite.ts}), published before that suite was retired from base '${flags.base}'. The ` +
+        'gate reads the newest row per suite and there is no withdrawal route, so it will report ' +
+        'conformance_inconclusive for a suite this estate no longer has. It has to be withdrawn ' +
+        'from `conformance_runs` by hand — see README §2c.',
+    )
+  }
+
+  return refused
+}
+
+interface StaleSuite {
+  readonly suite: string
+  readonly status: string
+  readonly ts: string
+}
+
+/**
+ * Ask Beacon which suites it still holds, and report any that this base has retired.
+ *
+ * A read failure is reported and is NOT treated as "no stale rows": that would make the check
+ * silently absent exactly when Beacon is unreachable, which is the one condition under which
+ * nobody would notice.
+ */
+async function staleSuites(
+  baseUrl: string,
+  token: string,
+  withheld: readonly string[],
+): Promise<readonly StaleSuite[]> {
+  if (withheld.length === 0) return []
+  const url = new URL('/v1/conformance', baseUrl)
+  try {
+    const response = await fetch(url, {
+      headers: { 'x-beacon-token': token },
+      signal: AbortSignal.timeout(30_000),
+    })
+    if (!response.ok) {
+      console.error(`\n  could not read ${url} (HTTP ${response.status}) — a retired suite may still be blocking the gate`)
+      return []
+    }
+    const body = (await response.json()) as { suites?: readonly StaleSuite[] }
+    return (body.suites ?? []).filter((suite) => withheld.includes(suite.suite))
+  } catch (err) {
+    console.error(
+      `\n  could not read ${url} (${err instanceof Error ? err.message : String(err)}) — ` +
+        'a retired suite may still be blocking the gate',
+    )
+    return []
   }
 }
 
