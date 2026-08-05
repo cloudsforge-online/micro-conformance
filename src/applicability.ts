@@ -161,8 +161,8 @@ const NOT_APPLICABLE: Readonly<Record<string, readonly NotApplicable[]>> = {
       reason:
         'the recorded game surface is served at no address on this base, and not because it was ' +
         'renamed: Ninety Days After is a TITLE under Worlds now, not the product this corpus ' +
-        'recorded. worlds-api.<apex> is routed whole to micro-worlds (cf-api-worlds-api, ' +
-        'deploy/gateway/dynamic/estate-web.yml:327-331) and its route table is /v1/titles, ' +
+        'recorded. worlds.<apex>/v1 is routed to micro-worlds (cf-api-worlds-host, ' +
+        'deploy/gateway/dynamic/estate-web.yml:325-329) and its route table is /v1/titles, ' +
         '/v1/players/me, /v1/players/me/inventory and /v1/provisions ' +
         '(worlds/src/server.ts:507-682) — neither /worlds nor /cosmetics appears anywhere in ' +
         'worlds/src, and both answered 404 application/json from the service when measured on ' +

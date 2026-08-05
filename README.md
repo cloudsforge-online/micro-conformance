@@ -209,13 +209,16 @@ versioned:
 | `mint` | `micro-mint` | `/chains`, `/offers`, `/capabilities` | `/v1/catalogue`, `/v1/tokens` |
 | `crucible` | `micro-trade` | `/catalog`, `/bots`, `/billing` | `/v1/strategies`, `/v1/bots`, `/v1/backtests` |
 
-> **A note on `worlds-api.<apex>`, because it differs between the compose estate and the public
-> one.** `cf-api-worlds-api` (`deploy/gateway/dynamic/estate-web.yml:388-392`) routes that host on
-> the **compose** apex, which is what these suites run against. On the **public** estate the
-> hostname was retired: `worlds-api.cloudsforge.online` has no DNS record, and worlds' routes are
-> served from `api.<apex>` — measured 2026-08-05, `api.cloudsforge.online/v1/titles` and
-> `api-testnet.cloudsforge.online/v1/titles` both answer `200`. Neither host serves HTML; both are
-> `servesUi: false`.
+> **A note on `worlds-api.<apex>`, which no longer exists anywhere.** It used to differ between
+> the two estates — routed on the compose apex by `cf-api-worlds-api`, and with no DNS record at
+> all on the public one — and that split is exactly what made it dangerous: the compose router
+> read as evidence the public hostname was fine. **The router is deleted and the name is retired
+> on both.** The game API was folded INTO `api.`, not out of it.
+>
+> These suites run against the compose apex and now reach micro-worlds at `worlds.<apex>/v1`
+> (`cf-api-worlds-host`, `deploy/gateway/dynamic/estate-web.yml:325-329`), which every request in
+> the suite matches. On the public estate the same service answers at `api.<apex>/v1`. Neither
+> host serves HTML; both are `servesUi: false`.
 
 ### Why those four are UNMAPPED rather than pointed at their successors
 
@@ -367,7 +370,7 @@ Every address below was measured on 2026-08-04 through the gateway on the estate
 | Entitlements | `pay` `/cosmetics`, `/convenience`, `/season-pass`, `/private-worlds` | `micro-billing`, four prefixes carved out at priority 600 (`estate-web.yml:827-831`) | One `GET /products` replaces all four arrays; seeded by `billing/src/migrations.ts:391` |
 | Mint | `mint` `/chains`, `/offers`, `/capabilities` | `micro-mint` at `create.<apex>/v1` (`estate-web.yml:238-242`) | `/v1/catalogue`, `/v1/tokens` — `mint/src/server.ts:354-441` |
 | Trade | `crucible` `/catalog` | `micro-trade` at `trade.<apex>/v1` (`estate-web.yml:251-255`) | `/v1/strategies`, `/v1/capabilities` — `trade/src/server.ts:341-360` |
-| Game | `game` `/worlds`, `/cosmetics` | `micro-worlds` at `worlds-api.<apex>` on the **compose** apex, whole host (`cf-api-worlds-api`, `estate-web.yml:388-392`); at `api.<apex>` on the public estate | `/v1/titles`, `/v1/players/me`, `/v1/provisions` — `worlds/src/server.ts:507-682` |
+| Game | `game` `/worlds`, `/cosmetics` | `micro-worlds` at `worlds.<apex>/v1` on the **compose** apex (`cf-api-worlds-host`, `estate-web.yml:325-329`); at `api.<apex>/v1` on the public estate | `/v1/titles`, `/v1/players/me`, `/v1/provisions` — `worlds/src/server.ts:507-682` |
 
 **The successor suites are new suites, not the old ones repointed.** That distinction is the whole
 of §2b's argument carried forward: a legacy suite pointed at a successor address records 404s as
@@ -487,7 +490,7 @@ happens to be right.
 | `entitlements` | `micro-entitlements` | `/cosmetics`, `/convenience`, `/season-pass`, `/private-worlds` → **404**; `/entitlements` → **401**, answered by billing at the same path (`billing/src/server.ts:375-580`, `estate-web.yml:827-831`) |
 | `mint` | `micro-mint` | `/chains`, `/offers`, `/capabilities` → **404 `text/html`**; `GET /tokens` → **200 `text/html`**, the SPA shell. Only `/v1` reaches the service (`estate-web.yml:238-242`, `mint/src/server.ts:354-441`) |
 | `trade` | `micro-trade` | `/catalog`, `/billing` → **404 `text/html`**; `GET /bots`, `/backtests` → **200 `text/html`**, the shell that would have compared identical forever (`estate-web.yml:251-255`, `trade/src/server.ts:341-590`) |
-| `game` | `micro-worlds` | `/worlds`, `/cosmetics` → **404 `application/json`**; neither appears anywhere in `worlds/src` (`worlds/src/server.ts:507-682`, `cf-api-worlds-api`, `estate-web.yml:388-392`) |
+| `game` | `micro-worlds` | `/worlds`, `/cosmetics` → **404 `application/json`**; neither appears anywhere in `worlds/src` (`worlds/src/server.ts:507-682`, `cf-api-worlds-host`, `estate-web.yml:325-329`) |
 
 Each successor `pass`ed in the same run that withheld its ancestor — that is R3, and it is checked,
 not asserted here.

@@ -55,7 +55,7 @@
       "name": "game",
       "title": "Worlds list, a world reads back in detail, and the cosmetic catalogue loads",
       "outcome": "skipped",
-      "reason": "game is not mapped in this base, so GET /worlds was not attempted — no address serves the recorded game surface: `micro-worlds` answers worlds-api.<apex> and 404s both /worlds and /cosmetics — it serves /v1/titles and /v1/players/me instead (worlds/src/server.ts:507-682). Ninety Days After is a TITLE under Worlds now, not the product the corpus recorded. THE CAPABILITY IS RECORDED — by the `micro-worlds` suite, against the player surface that replaced it",
+      "reason": "game is not mapped in this base, so GET /worlds was not attempted — no address serves the recorded game surface: `micro-worlds` answers worlds.<apex>/v1 and 404s both /worlds and /cosmetics — it serves /v1/titles and /v1/players/me instead (worlds/src/server.ts:507-682). Ninety Days After is a TITLE under Worlds now, not the product the corpus recorded. THE CAPABILITY IS RECORDED — by the `micro-worlds` suite, against the player surface that replaced it",
       "interactions": 0,
       "cleanupErrors": []
     },

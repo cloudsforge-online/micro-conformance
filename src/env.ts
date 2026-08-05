@@ -271,11 +271,16 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
     // estate-web.yml:251-255).
     'micro-trade': gateway('trade'),
 
-    // `worlds-api.<apex>` is routed WHOLE to micro-worlds (`cf-api-worlds-api`,
-    // estate-web.yml:327-331) — an API hostname with no bundle on it, which is why this one needs
-    // no `/v1` guard. `worlds.<apex>/v1` reaches the same service; the api hostname is used
-    // because it cannot lose a priority tie to a bundle.
-    'micro-worlds': gateway('worlds-api'),
+    // The same shape again: `worlds.<apex>` is the bundle and `/v1` is micro-worlds
+    // (`cf-api-worlds-host`, estate-web.yml:325-329). Every request in the `micro-worlds` suite is
+    // under `/v1` — /v1/titles, /v1/players/me, /v1/players/me/inventory, /v1/provisions — so the
+    // guarded router catches all five and none of them can reach the SPA shell at the root.
+    //
+    // THIS USED TO BE `gateway('worlds-api')`, and that address is gone. `worlds-api.<apex>` was
+    // an API hostname routed whole by `cf-api-worlds-api`, which is deleted: the game API was
+    // folded INTO `api.`, `worlds-api.` never had a DNS record on the public estate, and a router
+    // that outlived its hostname is what made the dead name keep reading as reachable.
+    'micro-worlds': gateway('worlds'),
 
     // ── UNMAPPED — the four product APIs that were redesigned rather than re-hosted ───────────
     //
@@ -291,7 +296,7 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
         '`micro-wallet` and `micro-entitlements` suites, against those addresses',
     ),
     game: unmapped(
-      'no address serves the recorded game surface: `micro-worlds` answers worlds-api.<apex> and ' +
+      'no address serves the recorded game surface: `micro-worlds` answers worlds.<apex>/v1 and ' +
         '404s both /worlds and /cosmetics — it serves /v1/titles and /v1/players/me instead ' +
         '(worlds/src/server.ts:507-682). Ninety Days After is a TITLE under Worlds now, not the ' +
         'product the corpus recorded. THE CAPABILITY IS RECORDED — by the `micro-worlds` suite, ' +
