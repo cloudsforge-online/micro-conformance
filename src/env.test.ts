@@ -321,7 +321,7 @@ describe('the successor targets', () => {
  * because the failure it prevents is the one this repository already nearly shipped: a legacy
  * suite repointed at a successor address records 404s as behaviour, compares them identical
  * forever, and Beacon derives `pass` from `identical + benign > 0` for a suite that observed
- * nothing (`beacon/src/conformance.ts:100-108`).
+ * nothing (`beacon/src/conformance.ts`).
  */
 describe('the two generations of suite', () => {
   const isSuccessorSuite = (name: string): boolean => name.startsWith('micro-')

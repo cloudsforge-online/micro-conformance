@@ -216,7 +216,7 @@ versioned:
 > on both.** The game API was folded INTO `api.`, not out of it.
 >
 > These suites run against the compose apex and now reach micro-worlds at `worlds.<apex>/v1`
-> (`cf-api-worlds-host`, `deploy/gateway/dynamic/estate-web.yml:325-329`), which every request in
+> (`cf-api-worlds-host`, `deploy/gateway/dynamic/estate-web.yml`), which every request in
 > the suite matches. On the public estate the same service answers at `api.<apex>/v1`. Neither
 > host serves HTML; both are `servesUi: false`.
 
@@ -225,7 +225,7 @@ versioned:
 **Because a 404 is a response, and `ctx.call` only skips on a transport failure.** Point `pay` at
 the wallet service and the `wallet` scenario records six 404s, reports `recorded`, and the next
 comparison finds all six *identical* — `identical + benign > 0` is exactly what makes Beacon's
-`statusFor` derive `pass` rather than `skip` (`beacon/src/conformance.ts:100-108`). The gate would
+`statusFor` derive `pass` rather than `skip` (`beacon/src/conformance.ts`). The gate would
 then be told the wallet suite passes, on the evidence that every wallet route is absent. A stable
 404 is indistinguishable from a stable contract to everything downstream.
 
@@ -277,12 +277,12 @@ comparisons are evidence against and never the evidence itself:
 - **That identity's contract is unchanged.** Two differences are recorded rather than papered over:
   `POST /auth/login` now requires `identifier`, not `email` (it answers 400 to the legacy shape),
   and `/portal/handoff` + `/auth/exchange` are `/auth/handoff` + `/auth/handoff/redeem`
-  (`identity/src/server.ts:1144,1161`), so the SSO half is reported as unrecorded. The scenario
+  (`identity/src/server.ts,1161`), so the SSO half is reported as unrecorded. The scenario
   paths were deliberately **not** renamed: the same code records the `local` corpus, so renaming
   them would rewrite what the legacy baseline characterises in order to make this one greener.
 - **That refresh-reuse detection is exercised.** All three `/auth/refresh` calls answer 200, which
   is **not** a missing defence: `micro-identity` has a 10-second rotation grace window
-  (`identity/src/tokens.ts:171`), and a token re-presented inside it is classed `concurrent` with
+  (`identity/src/tokens.ts`), and a token re-presented inside it is classed `concurrent` with
   the family kept. The scenario re-presents in milliseconds, so it can never reach the burn. This
   is the sharpest instance of §4's "anything it does not exercise" and the next thing worth fixing.
 
@@ -366,11 +366,11 @@ Every address below was measured on 2026-08-04 through the gateway on the estate
 
 | Capability | Legacy suite asked | What serves it now | Evidence |
 | --- | --- | --- | --- |
-| Wallet | `pay` `/wallet`, `/coins/rates`, `/deposit-coins` | `micro-wallet` at `pay.<apex>`, whole host at priority 500 (`estate-web.yml:822-826`) | `/v1/wallets`, `/v1/portfolio`, `/v1/deposits`, `/v1/deposits/credits`, `/v1/withdrawals` — `wallet/src/server.ts:477-827` |
-| Entitlements | `pay` `/cosmetics`, `/convenience`, `/season-pass`, `/private-worlds` | `micro-billing`, four prefixes carved out at priority 600 (`estate-web.yml:827-831`) | One `GET /products` replaces all four arrays; seeded by `billing/src/migrations.ts:391` |
-| Mint | `mint` `/chains`, `/offers`, `/capabilities` | `micro-mint` at `create.<apex>/v1` (`estate-web.yml:238-242`) | `/v1/catalogue`, `/v1/tokens` — `mint/src/server.ts:354-441` |
-| Trade | `crucible` `/catalog` | `micro-trade` at `trade.<apex>/v1` (`estate-web.yml:251-255`) | `/v1/strategies`, `/v1/capabilities` — `trade/src/server.ts:341-360` |
-| Game | `game` `/worlds`, `/cosmetics` | `micro-worlds` at `worlds.<apex>/v1` on the **compose** apex (`cf-api-worlds-host`, `estate-web.yml:325-329`); at `api.<apex>/v1` on the public estate | `/v1/titles`, `/v1/players/me`, `/v1/provisions` — `worlds/src/server.ts:507-682` |
+| Wallet | `pay` `/wallet`, `/coins/rates`, `/deposit-coins` | `micro-wallet` at `pay.<apex>`, whole host at priority 500 (`estate-web.yml`) | `/v1/wallets`, `/v1/portfolio`, `/v1/deposits`, `/v1/deposits/credits`, `/v1/withdrawals` — `wallet/src/server.ts` |
+| Entitlements | `pay` `/cosmetics`, `/convenience`, `/season-pass`, `/private-worlds` | `micro-billing`, four prefixes carved out at priority 600 (`estate-web.yml`) | One `GET /products` replaces all four arrays; seeded by `billing/src/migrations.ts` |
+| Mint | `mint` `/chains`, `/offers`, `/capabilities` | `micro-mint` at `create.<apex>/v1` (`estate-web.yml`) | `/v1/catalogue`, `/v1/tokens` — `mint/src/server.ts` |
+| Trade | `crucible` `/catalog` | `micro-trade` at `trade.<apex>/v1` (`estate-web.yml`) | `/v1/strategies`, `/v1/capabilities` — `trade/src/server.ts` |
+| Game | `game` `/worlds`, `/cosmetics` | `micro-worlds` at `worlds.<apex>/v1` on the **compose** apex (`cf-api-worlds-host`, `estate-web.yml`); at `api.<apex>/v1` on the public estate | `/v1/titles`, `/v1/players/me`, `/v1/provisions` — `worlds/src/server.ts` |
 
 **The successor suites are new suites, not the old ones repointed.** That distinction is the whole
 of §2b's argument carried forward: a legacy suite pointed at a successor address records 404s as
@@ -422,7 +422,7 @@ refusal, excluded — and is now the worked example of what happens next: the ru
 answer that is *wrong*, and nothing in that rule tells you when the answer stopped being wrong.
 `GET /v1/titles`
 is *right*: it reports one title, `emberkin`, `status: "draft"` with no capabilities, which is
-there because `deploy/scripts/estate-verify.sh:790-792` registers it and which `titles.ts:228`
+there because `deploy/scripts/estate-verify.sh` registers it and which `titles.ts`
 makes unsellable at that status. It is recorded, because a title registry losing its only entry is
 worth a human looking whoever put the entry there. `micro-worlds`' header says so, so a future
 `breaking` diff on that file arrives with its provenance attached.
@@ -447,7 +447,7 @@ Two different facts were being published as one:
 
 Publishing the second as the first is what produced five `conformance_inconclusive` unknowns that
 **could never resolve** — the legacy servers are gone permanently — and a permanently indeterminate
-gate is not a safe default. `beacon/src/gate.ts:140-152` returns `refuse` on any unknown *before it
+gate is not a safe default. `beacon/src/gate.ts` returns `refuse` on any unknown *before it
 looks at anything else*, and an override cannot reach one. So the gate could never go green, for a
 reason already fully understood and already covered by five passing suites. A gate that can never
 go green is a gate people learn to override, and then it protects nothing.
@@ -486,11 +486,11 @@ happens to be right.
 
 | Retired | Covered by | Verified 2026-08-04 |
 | --- | --- | --- |
-| `wallet` | `micro-wallet` | `/wallet`, `/coins/rates`, `/deposit-coins`, `/withdrawal-coins`, `/deposits`, `/withdrawals` → **404 `application/json`** from the service's own handler; none of the six appears anywhere in `wallet/src` (`wallet/src/server.ts:477-827`) |
-| `entitlements` | `micro-entitlements` | `/cosmetics`, `/convenience`, `/season-pass`, `/private-worlds` → **404**; `/entitlements` → **401**, answered by billing at the same path (`billing/src/server.ts:375-580`, `estate-web.yml:827-831`) |
-| `mint` | `micro-mint` | `/chains`, `/offers`, `/capabilities` → **404 `text/html`**; `GET /tokens` → **200 `text/html`**, the SPA shell. Only `/v1` reaches the service (`estate-web.yml:238-242`, `mint/src/server.ts:354-441`) |
-| `trade` | `micro-trade` | `/catalog`, `/billing` → **404 `text/html`**; `GET /bots`, `/backtests` → **200 `text/html`**, the shell that would have compared identical forever (`estate-web.yml:251-255`, `trade/src/server.ts:341-590`) |
-| `game` | `micro-worlds` | `/worlds`, `/cosmetics` → **404 `application/json`**; neither appears anywhere in `worlds/src` (`worlds/src/server.ts:507-682`, `cf-api-worlds-host`, `estate-web.yml:325-329`) |
+| `wallet` | `micro-wallet` | `/wallet`, `/coins/rates`, `/deposit-coins`, `/withdrawal-coins`, `/deposits`, `/withdrawals` → **404 `application/json`** from the service's own handler; none of the six appears anywhere in `wallet/src` (`wallet/src/server.ts`) |
+| `entitlements` | `micro-entitlements` | `/cosmetics`, `/convenience`, `/season-pass`, `/private-worlds` → **404**; `/entitlements` → **401**, answered by billing at the same path (`billing/src/server.ts`, `estate-web.yml`) |
+| `mint` | `micro-mint` | `/chains`, `/offers`, `/capabilities` → **404 `text/html`**; `GET /tokens` → **200 `text/html`**, the SPA shell. Only `/v1` reaches the service (`estate-web.yml`, `mint/src/server.ts`) |
+| `trade` | `micro-trade` | `/catalog`, `/billing` → **404 `text/html`**; `GET /bots`, `/backtests` → **200 `text/html`**, the shell that would have compared identical forever (`estate-web.yml`, `trade/src/server.ts`) |
+| `game` | `micro-worlds` | `/worlds`, `/cosmetics` → **404 `application/json`**; neither appears anywhere in `worlds/src` (`worlds/src/server.ts`, `cf-api-worlds-host`, `estate-web.yml`) |
 
 Each successor `pass`ed in the same run that withheld its ancestor — that is R3, and it is checked,
 not asserted here.
@@ -663,7 +663,7 @@ node --import tsx src/cli.ts ledger-accounts --estate ..
 
 `micro-ledger` keys an account on `(subject, asset_code, purpose)` and **nothing else** — not the
 type. Every service picks that type independently, in its own source, when it first posts. When two
-disagree, `ensureAccount` throws `AccountConflictError` (`ledger/src/accounts.ts:125`) and whichever
+disagree, `ensureAccount` throws `AccountConflictError` (`ledger/src/accounts.ts`) and whichever
 service posted **second** has **every** entry refused, in production, for as long as the
 disagreement stands.
 
@@ -685,7 +685,7 @@ others) and runs three passes:
 
 `CANONICAL_ACCOUNTS` is the chart, and every row carries the source that decided it. The row that
 settled both fixes is `micro-ledger`'s own: "`platform` is revenue under `fees`, equity under
-`treasury` and expense under `payout_due`" (`ledger/src/accounts.ts:16-17`).
+`treasury` and expense under `payout_due`" (`ledger/src/accounts.ts`).
 
 **Exit 1 on any finding.** `src/ledgeraccounts.test.ts` reintroduces each defect and asserts the
 sweep goes red on it — the analyser cases run with no estate checked out, so they run in CI.
@@ -733,7 +733,7 @@ also the only entry in `DYNAMIC_SCANS`, which is how this scan knows — by read
 told — which routes something else in the estate already watches.
 
 The only estate-wide key check that existed before this was
-`org/.github/workflows/secret-hygiene.yml:73-83`, which greps repository **files** for PEM blocks. A
+`org/.github/workflows/secret-hygiene.yml`, which greps repository **files** for PEM blocks. A
 grep over files cannot see what a running route returns; the two do not overlap at all.
 
 ### Static, and what that costs
@@ -758,7 +758,7 @@ request. **It does not prove what custody's proves.** Custody's stays.
 | `row` | A whole database row from a table with a secret column | `select *` reaching a body |
 
 The vocabulary is sourced to custody's own statement of the boundary
-(`custody/src/exports.ts:440-453`), which omits from its export event the material, the reveal token
+(`custody/src/exports.ts`), which omits from its export event the material, the reveal token
 **and its SHA-256**, the vault slot id, the derivation path and the keystore passphrase. Session
 tokens, password hashes, public keys and `salt`/`iv`/`nonce` are deliberately **not** in it: they
 are not private key material, and a vocabulary that included them would fire on nearly every
@@ -782,7 +782,7 @@ Custody's `a633986` drives all six of its routes in the first list, four of them
 real key material in the vault. The obvious move is 37 → 33. It is wrong three times over:
 
 1. **A run still says 37.** Not one line of custody's *source* changed in a way this reads —
-   `deps.metrics.render()`, `randomBytes(32)`, the emit callback in `outbox.ts:91` are exactly as
+   `deps.metrics.render()`, `randomBytes(32)`, the emit callback in `outbox.ts` are exactly as
    opaque as yesterday. 33 does not record progress; it turns the gate red and invites the next
    person to put it back. A measurement is not lowered by arithmetic on a commit message.
 2. **It would make one number mean two things.** This one measures *this analyser's reach*, which is

@@ -6,7 +6,7 @@
  *
  * `micro-ledger` keys an account on `(subject, asset_code, purpose)` and **nothing else** — not the
  * type. `ensureAccount` therefore has to decide what to do when a caller names an existing account
- * with a different `type`, and it THROWS (`ledger/src/accounts.ts:125`, `AccountConflictError`):
+ * with a different `type`, and it THROWS (`ledger/src/accounts.ts`, `AccountConflictError`):
  * continuing "would post a debit in the direction the caller expected rather than the direction
  * the account actually normalises to — a wrong balance that still balances".
  *
@@ -116,7 +116,7 @@ export interface AccountClaim {
  * The chart, as `micro-ledger` states it — the answer to "which of the two disagreeing services is
  * right", which a majority vote cannot give.
  *
- * `ledger/src/accounts.ts:14-17`, on why the ledger refuses to infer the type itself: "`platform`
+ * `ledger/src/accounts.ts`, on why the ledger refuses to infer the type itself: "`platform`
  * is revenue under `fees`, equity under `treasury` and expense under `payout_due`, and a rule that
  * guesses would be wrong for two of the three." That sentence is the chart for the `platform`
  * subject, written by the service that owns the chart. The rest follows `normalBalance`
@@ -373,7 +373,7 @@ export function extractAccountClaims(service: string, file: string, source: stri
   if (nul !== -1) throw new UnreadableSourceError(file, `a NUL byte at offset ${nul}`)
   // Spelled as an escape, never as the character itself: a file that CONTAINS the byte it tests for
   // cannot pass its own check, which this one did not until it was actually run. A U+FFFD is NOT
-  // checked here — `lantern/src/otlp.ts:375` holds one legitimately, as the sentinel it trims off a
+  // checked here — `lantern/src/otlp.ts` holds one legitimately, as the sentinel it trims off a
   // truncated string, and refusing it would make a real file invisible. Invalid ENCODING is caught
   // where the bytes are, by the fatal decoder in `sweepEstate`.
 
@@ -500,7 +500,7 @@ export const DEFAULT_EXCLUDED = Object.freeze(['conformance'])
  * **RAISED FROM 11 TO 12 ON 2026-08-04, AND HERE IS THE DECISION.**
  *
  * The guard fired exactly as intended: the twelfth spelling appeared and the sweep went red rather
- * than absorbing it. The new one is `beacon/src/browser/money.ts:291`, added by micro-beacon's
+ * than absorbing it. The new one is `beacon/src/browser/money.ts`, added by micro-beacon's
  * `fix(browser): a fixture that moves money must put it back` — the browser money fixture credits
  * `{ subject: options.subject, assetCode: options.assetCode, purpose: 'available' }` as
  * `liability`, and `options.subject` is a property of an argument, which is the same shape as the

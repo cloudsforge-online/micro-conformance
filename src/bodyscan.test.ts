@@ -57,7 +57,7 @@ import {
  * Spelling the byte literally made this file invisible to `grep` and hid the PEM header beneath it
  * for one commit.
  *
- * `PEM_HEADER` — the estate's own `secret-hygiene.yml:73-83` fails any repository holding a private
+ * `PEM_HEADER` — the estate's own `secret-hygiene.yml` fails any repository holding a private
  * key block, and it is right to; a scanner's fixture is not an exemption. Assembled here, the
  * fixture WRITTEN TO DISK still holds a real header, so the shape pass is still proved against the
  * real thing rather than against a euphemism for it.
@@ -233,7 +233,7 @@ describe('the NAME pass — a field called what key material is called', () => {
   })
 
   it('does NOT fire on the derivation path, which custody argues belongs in a response', () => {
-    // custody/src/exports.ts:450 — omitted from the EVENT, returned in the RESPONSE, "because the
+    // custody/src/exports.ts — omitted from the EVENT, returned in the RESPONSE, "because the
     // user restoring a phrase needs it". Nine routes return it on purpose.
     const result = scan(
       server('custody', `    { method: 'GET', path: '/v1/keys', handle: async () => ({ status: 200, body: { address: a, derivationPath: p } }) },`),

@@ -61,7 +61,7 @@ export type Target = (typeof TARGETS)[number]
  * Point `pay` at the wallet service and the `wallet` scenario records six 404s, reports `recorded`,
  * and the next `compare` finds all six identical — a `pass` published to Beacon for a suite that
  * observed nothing about a wallet. `identical + benign > 0` is exactly the test `statusFor`
- * (`beacon/src/conformance.ts:100-108`) uses to call a run a pass rather than a skip, so a stable
+ * (`beacon/src/conformance.ts`) uses to call a run a pass rather than a skip, so a stable
  * 404 is indistinguishable from a stable contract to everything downstream.
  *
  * An unmapped target skips the scenario instead, carrying this reason into the manifest. That is
@@ -166,7 +166,7 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
    * Through the gateway, on the estate's own CA, never `curl -k`. The hostnames come from the
    * surface registry (`ui/packages/ui/src/surfaces.ts`) — which is the single source of truth and
    * contains the one host whose name does not match its key: `keyvault` has the subdomain
-   * **`vault`** (surfaces.ts:814-818) — reconciled against the routers that actually serve them in
+   * **`vault`** (surfaces.ts) — reconciled against the routers that actually serve them in
    * `deploy/gateway/dynamic/estate-web.yml`.
    *
    * ── EVERY ROW BELOW WAS MEASURED, NOT REASONED ABOUT ─────────────────────────────────────────
@@ -184,21 +184,21 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
     // ── MAPPED ───────────────────────────────────────────────────────────────────────────────
     //
     // `micro-identity` kept Nimbus's unversioned auth surface wholesale. `cf-web-nimbus` routes
-    // the WHOLE host to it (estate-web.yml:754-758) because "identity serves 34 unversioned routes
+    // the WHOLE host to it (estate-web.yml) because "identity serves 34 unversioned routes
     // at the root", so the paths this corpus knows resolve unchanged:
     //
     //   /.well-known/jwks.json  200   /auth/me  401 (refusing anonymously, as recorded)
     //   /auth/register /auth/login /auth/refresh /auth/logout /auth/password  all present
-    //   (identity/src/server.ts:748-1023)
+    //   (identity/src/server.ts)
     //
     // TWO PATHS IN THIS CORPUS DO NOT EXIST HERE, and both are recorded rather than papered over:
-    //   * `/health` → 404. identity serves `/livez` and `/readyz` (identity/src/server.ts:719-721).
+    //   * `/health` → 404. identity serves `/livez` and `/readyz` (identity/src/server.ts).
     //     That is P2 landing, and the `health` scenario's own header says recording the shape the
     //     estate has today is what makes that replacement provable. The 404 IS the observation.
     //   * `/portal/handoff` and `/auth/exchange` → 404. They are `/auth/handoff` and
-    //     `/auth/handoff/redeem` now (identity/src/server.ts:1144,1161). The `identity` scenario
+    //     `/auth/handoff/redeem` now (identity/src/server.ts,1161). The `identity` scenario
     //     already tolerates a refused handoff — it tries each candidate return URL and notes the
-    //     failure (scenarios/identity.ts:209-211) — so the SSO half is reported as unrecorded
+    //     failure (scenarios/identity.ts) — so the SSO half is reported as unrecorded
     //     rather than silently dropped. Renaming the path in the scenario is NOT done here: the
     //     same code records the `local` corpus, so it would rewrite what the legacy baseline
     //     characterises in order to make this one greener.
@@ -250,29 +250,29 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
      */
 
     // `pay.<apex>` is routed WHOLE to micro-wallet at priority 500 (`cf-web-pay`,
-    // estate-web.yml:822-826), with four billing prefixes carved out above it at 600 — so the
+    // estate-web.yml), with four billing prefixes carved out above it at 600 — so the
     // same host serves two services and they are two targets here. GET /v1/wallets, /v1/deposits,
     // /v1/deposits/credits, /v1/withdrawals and /v1/portfolio all answer 401 anonymously and 200
-    // to an identity token (wallet/src/server.ts:477-827).
+    // to an identity token (wallet/src/server.ts).
     'micro-wallet': gateway('pay'),
 
     // The carve-out: `/entitlements`, `/products`, `/purchases`, `/subscriptions` at priority 600
-    // (`cf-api-pay-billing`, estate-web.yml:827-831) reach micro-billing on the same hostname
-    // (billing/src/server.ts:375-580). Only the two READ routes and the catalogue are recorded —
+    // (`cf-api-pay-billing`, estate-web.yml) reach micro-billing on the same hostname
+    // (billing/src/server.ts). Only the two READ routes and the catalogue are recorded —
     // `/purchases` spends.
     'micro-billing': gateway('pay'),
 
     // `create.<apex>` serves the web bundle at its root and micro-mint under `/v1` only
-    // (`cf-api-create`, estate-web.yml:238-242). That is precisely why the legacy `mint` target is
+    // (`cf-api-create`, estate-web.yml). That is precisely why the legacy `mint` target is
     // unmapped rather than pointed at this host: `GET /tokens` at the root is the SPA shell.
     'micro-mint': gateway('create'),
 
     // The same shape: `trade.<apex>` is the bundle, `/v1` is micro-trade (`cf-api-trade-host`,
-    // estate-web.yml:251-255).
+    // estate-web.yml).
     'micro-trade': gateway('trade'),
 
     // The same shape again: `worlds.<apex>` is the bundle and `/v1` is micro-worlds
-    // (`cf-api-worlds-host`, estate-web.yml:325-329). Every request in the `micro-worlds` suite is
+    // (`cf-api-worlds-host`, estate-web.yml). Every request in the `micro-worlds` suite is
     // under `/v1` — /v1/titles, /v1/players/me, /v1/players/me/inventory, /v1/provisions — so the
     // guarded router catches all five and none of them can reach the SPA shell at the root.
     //

@@ -4,7 +4,7 @@
  * This is the successor to `wallet`, not a rewrite of it. `wallet` records forge-pay's
  * `/wallet`, `/coins/rates`, `/deposit-coins` and `/deposits`; micro-wallet serves none of those
  * and answers 404 to every one. It serves `/v1/wallets`, `/v1/portfolio`, `/v1/deposits`,
- * `/v1/deposits/credits` and `/v1/withdrawals` instead (`wallet/src/server.ts:445-806`). Both
+ * `/v1/deposits/credits` and `/v1/withdrawals` instead (`wallet/src/server.ts`). Both
  * suites exist and neither is pointed at the other's estate — see the `micro-wallet` row in
  * `env.ts` for why merging them would manufacture a pass out of six stable 404s.
  *

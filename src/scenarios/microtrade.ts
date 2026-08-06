@@ -3,7 +3,7 @@
  *
  * The successor to `trade`, which reads Crucible's `/catalog` — the single largest static contract
  * in the legacy estate and the whole of that suite. micro-trade has no `/catalog` at all. What
- * replaced it is `GET /v1/strategies` (`trade/src/server.ts:341`), which serves the same kind of
+ * replaced it is `GET /v1/strategies` (`trade/src/server.ts`), which serves the same kind of
  * thing: the strategy list a customer picks from, each with its parameters, their bounds and
  * defaults, and — new here — a `weakness` sentence per strategy.
  *
@@ -11,7 +11,7 @@
  * `GET /v1/capabilities` IS THE ONE ROUTE IN THIS SUITE WITH NO LEGACY ANCESTOR, AND IT IS THE
  * MOST IMPORTANT ONE IN IT.
  *
- * `trade/src/server.ts:344-370` says why it was added, and the defect it closes is precisely the
+ * `trade/src/server.ts` says why it was added, and the defect it closes is precisely the
  * kind this harness exists to catch: `TRADE_LIVE_ENABLED` defaults to false and **nothing reported
  * it**, so a customer could configure a live bot, be charged for it, and discover only when it
  * refused to tick that live trading is switched off on this deployment. There was no way to ask.

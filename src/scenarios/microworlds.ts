@@ -6,12 +6,12 @@
  * not the product the legacy corpus recorded.** Worlds is the registry and the player surface; a
  * title is a separate service it provisions into. So `/worlds` did not become `/v1/titles` — the
  * thing `/worlds` returned is now a title's own concern, and what this suite characterises is the
- * platform above it (`worlds/src/server.ts:507-741`).
+ * platform above it (`worlds/src/server.ts`).
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════════
  * **`GET /v1/players/me` FAILS OPEN, AND THAT IS THE PROPERTY MOST WORTH FREEZING HERE.**
  *
- * `worlds/src/server.ts:25-27` states it: the route runs on every app load, so a billing outage
+ * `worlds/src/server.ts` states it: the route runs on every app load, so a billing outage
  * must not be able to break signing in — what someone is already wearing is worlds' to answer. The
  * companion route `PUT /v1/players/me/cosmetics` fails CLOSED with a 503 for the mirror reason: an
  * unverified cosmetic is never persisted.
@@ -25,8 +25,8 @@
  *
  * Its contents are thin and their provenance is worth knowing: the registry holds one title,
  * `emberkin`, `status: "draft"` with no capabilities, and it is there because
- * `deploy/scripts/estate-verify.sh:790-792` registers it — an operator verification script, not a
- * product seed. `titles.ts:228` makes a title purchasable only at `beta` or `live`, so nothing can
+ * `deploy/scripts/estate-verify.sh` registers it — an operator verification script, not a
+ * product seed. `titles.ts` makes a title purchasable only at `beta` or `live`, so nothing can
  * currently be sold into it.
  *
  * It is recorded anyway, and the line this suite draws is between an answer that is WRONG and an

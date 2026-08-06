@@ -13,7 +13,7 @@
  * It is also, structurally, only about custody. The other twenty-three services each have their own
  * Postgres, their own route table and their own suite, and no per-repository check can state a fact
  * about the estate — the same reason `ledgeraccounts.ts` lives here. The only estate-wide key check
- * that exists today is `org/.github/workflows/secret-hygiene.yml:73-83`, which greps repository
+ * that exists today is `org/.github/workflows/secret-hygiene.yml`, which greps repository
  * FILES for PEM blocks. A grep over files cannot see what a running route returns; the two checks
  * do not overlap at all.
  *
@@ -101,7 +101,7 @@
  *     response body in this model. Custody's dynamic scan checks headers; this does not.
  *   * **Whether the vocabulary is right.** `MATERIAL` and `ADJACENT` below are a claim about what
  *     key material is called in this estate, sourced to custody's own statement of the boundary
- *     (`custody/src/exports.ts:440-453`). A key stored under a name no one has thought of is a key
+ *     (`custody/src/exports.ts`). A key stored under a name no one has thought of is a key
  *     this does not see. The `shape` pass is the partial answer: it reads the VALUE, not the name.
  *   * **Branches.** It reads `main` in CI, like every other estate check.
  */
@@ -117,7 +117,7 @@ import ts from 'typescript'
 /**
  * THE BOUNDARY, AND WHY IT IS DRAWN HERE.
  *
- * `custody/src/exports.ts:440-453` is the best statement of it in the estate. Deciding what its
+ * `custody/src/exports.ts` is the best statement of it in the estate. Deciding what its
  * `custody.key.exported` event could carry, it omits five things and says why: the material itself;
  * the reveal token **and its SHA-256**, because "the token is the one secret in the estate that
  * yields a private key, and the hash is what a redemption is compared against"; the vault slot id
@@ -181,16 +181,16 @@ export const MATERIAL: readonly string[] = Object.freeze([
 ])
 
 export const ADJACENT: readonly string[] = Object.freeze([
-  // custody/src/exports.ts:447 — "the one secret in the estate that yields a private key".
+  // custody/src/exports.ts — "the one secret in the estate that yields a private key".
   'revealtoken',
   // ibid — "the hash is what a redemption is compared against".
   'tokenhash',
   // ibid:450 — "the vault slot behind a `mnemonic` export ... narrow the search for one". `seed_id`
-  // names a vault file; `slot` is `seed:<uuid>` and reaches the filesystem (custody/src/vault.ts:44).
+  // names a vault file; `slot` is `seed:<uuid>` and reaches the filesystem (custody/src/vault.ts).
   //
   // `derivation_path` is NOT here, and it is the one line of this vocabulary that was written, run
   // against the estate, and then deleted. custody returns it on every key record — nine routes, via
-  // `toKeyRecord` (custody/src/server.ts:91) — and custody/src/exports.ts:450 says exactly why that
+  // `toKeyRecord` (custody/src/server.ts) — and custody/src/exports.ts says exactly why that
   // is right: it is omitted from the EVENT, which lands in five stores that are not the vault, and
   // returned in the RESPONSE "because the user restoring a phrase needs it — a response goes to one
   // authenticated user, an event goes to subscribers". A path with no seed behind it opens nothing.
@@ -208,12 +208,12 @@ export const ADJACENT: readonly string[] = Object.freeze([
   'encryptedkey',
   'keyenc',
   'blobenc',
-  // identity/src/migrations.ts:278 — the TOTP shared secret. Possession is the second factor.
+  // identity/src/migrations.ts — the TOTP shared secret. Possession is the second factor.
   'totpsecret',
   'mfasecret',
   'recoverycodes',
   'backupcodes',
-  // devplatform/src/migrations.ts:297 and notify/src/migrations.ts:94 — webhook signing secrets.
+  // devplatform/src/migrations.ts and notify/src/migrations.ts — webhook signing secrets.
   'signingsecret',
   'webhooksecret',
   'clientsecret',
@@ -264,7 +264,7 @@ const RECEIVER_PRODUCERS: readonly [receiver: string, method: string][] = Object
  * String literals that ARE key material, whatever they are called and wherever they came from.
  *
  * This is the pass that needs no vocabulary and no provenance, and it is the one that catches the
- * case the other two are blindest to: a key pasted into source. `secret-hygiene.yml:73-83` greps
+ * case the other two are blindest to: a key pasted into source. `secret-hygiene.yml` greps
  * repository files for PEM blocks, which finds the same literal — but this pass only fires when the
  * literal REACHES A RESPONSE BODY, which is a strictly different and much louder claim.
  *
@@ -441,9 +441,9 @@ export interface Reach {
    * The file the value was OBSERVED in, absolute — not the file the route is declared in.
    *
    * The two differ constantly and the difference is the whole point of following imports:
-   * identity's JWKS route is declared at `server.ts:750` and the value it returns is built in
-   * `keys.ts:226`. An early version of this module printed the route's file with the value's line
-   * number, producing `identity/src/server.ts:116` for a node in `keys.ts` — a citation that
+   * identity's JWKS route is declared at `server.ts` and the value it returns is built in
+   * `keys.ts`. An early version of this module printed the route's file with the value's line
+   * number, producing `identity/src/server.ts` for a node in `keys.ts` — a citation that
    * looks precise and sends the reader to an unrelated import block.
    */
   readonly file: string
@@ -485,7 +485,7 @@ export interface Finding {
   readonly method: string
   readonly path: string
   readonly severity: Severity
-  /** Where the ROUTE is declared, `src/server.ts:750`. `file:line` above is where the VALUE is. */
+  /** Where the ROUTE is declared, `src/server.ts`. `file:line` above is where the VALUE is. */
   readonly declaredAt: string
   /** Which pass fired: the field's name, the value's provenance, or the literal's shape. */
   readonly pass: 'name' | 'provenance' | 'shape' | 'row' | 'unresolved'
@@ -560,7 +560,7 @@ export class RepoModules {
  * A COLUMN literally named `secret` counts here even though the bare word is not in either tier of
  * the field vocabulary, and the asymmetry is deliberate. As a response FIELD, `secret` is ambiguous
  * enough to be noise. As a COLUMN, it is a schema author writing down that this is where the secret
- * goes — notify/src/migrations.ts:94 and devplatform/src/migrations.ts:297 are both webhook signing
+ * goes — notify/src/migrations.ts and devplatform/src/migrations.ts are both webhook signing
  * secrets. The stronger signal earns the wider net.
  */
 export function secretBearingTables(migrationSource: string): Map<string, string[]> {
@@ -1468,7 +1468,7 @@ export const ACKNOWLEDGED: readonly Acknowledgement[] = Object.freeze([
  *
  * WHAT IT DOES NOT PROVE. That the dynamic scan RUNS. This reads source; whether custody's suite
  * executes is custody's CI's business, and custody's SD-16 tests carry `{ skip }` when
- * `CUSTODY_TEST_DATABASE_URL` is unset (`custody/src/testsupport.ts:34`). So a route here is
+ * `CUSTODY_TEST_DATABASE_URL` is unset (`custody/src/testsupport.ts`). So a route here is
  * "declared to be driven", never "observed clean" — which is exactly why this cannot be allowed to
  * reduce `BASELINE_BLIND_ROUTES`, and can be allowed to reduce the count of routes nothing watches.
  */
@@ -1592,8 +1592,8 @@ export function readDynamicCoverage(
  *
  *   1. IT IS NOT WHAT A RUN SAYS. `conformance body-scan --estate ..` still reports 37, because not
  *      one line of custody's SOURCE changed in a way this analyser reads. `deps.lifecycle.livez()`,
- *      `deps.metrics.render()`, `randomBytes(32)` in `exports.ts:349` and the emit callback in
- *      `outbox.ts:91` are exactly as opaque to a static walk as they were yesterday. Setting the
+ *      `deps.metrics.render()`, `randomBytes(32)` in `exports.ts` and the emit callback in
+ *      `outbox.ts` are exactly as opaque to a static walk as they were yesterday. Setting the
  *      constant to 33 does not record progress; it turns the gate red on the next run and invites
  *      the next person to set it back. The number is a MEASUREMENT, and a measurement is not lowered
  *      by arithmetic on a commit message — including mine.

@@ -3,12 +3,12 @@
  *
  * The successor to `mint`. That suite reads `/chains`, `/offers` and `/capabilities`; micro-mint
  * has none of them and serves `/v1/catalogue` and `/v1/tokens` instead
- * (`mint/src/server.ts:354-441`).
+ * (`mint/src/server.ts`).
  *
  * `/v1/catalogue` is the direct heir of `/offers` **and** of the part of `/chains` that mattered.
  * It is derived in the handler rather than read from a table — the three variants are a literal
  * tuple and `variantFor` resolves each one's contract, features and cap
- * (`mint/src/server.ts:354-370`) — so what is recorded is code, not estate state, with exactly two
+ * (`mint/src/server.ts`) — so what is recorded is code, not estate state, with exactly two
  * values coming from this deployment's configuration: `priceShards` and `network`. Both are
  * contract in the strongest sense the legacy suite meant: a creator is quoted that price and
  * deploys on that network, and custody binds a signature to the same chain.

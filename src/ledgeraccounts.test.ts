@@ -227,7 +227,7 @@ describe('it refuses rather than skips', () => {
   })
 
   it('accepts a U+FFFD, which is a legitimate character in real source', () => {
-    // `lantern/src/otlp.ts:375` holds one as the sentinel it trims off a truncated string. An
+    // `lantern/src/otlp.ts` holds one as the sentinel it trims off a truncated string. An
     // over-strict refusal would make a real file invisible, which is the same failure wearing the
     // opposite hat.
     const source = `const cut = '�'\nconst a = { subject: 'platform', purpose: 'fees', type: 'revenue' }`

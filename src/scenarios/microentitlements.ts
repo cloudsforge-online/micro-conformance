@@ -3,7 +3,7 @@
  *
  * The successor to `entitlements`. That suite reads forge-pay's `/cosmetics`, `/convenience`,
  * `/season-pass` and `/private-worlds` — four catalogues that were **four frozen arrays in a
- * shared package** with a hand-written buy route each, which `billing/src/catalogue.ts:1-18`
+ * shared package** with a hand-written buy route each, which `billing/src/catalogue.ts`
  * names as the thing it replaces. Here a product is a row and a price is a row, so all four
  * catalogues are one route: `GET /products`.
  *
@@ -15,7 +15,7 @@
  * and the tool is right to say so — a withdrawn SKU is a contract removal, and a gate that cannot
  * be told about an intentional one is a gate that has to be argued with.
  *
- * **The catalogue is a migration, not an operator's fixture.** `billing/src/migrations.ts:391`
+ * **The catalogue is a migration, not an operator's fixture.** `billing/src/migrations.ts`
  * `seed_catalogue` inserts these products and prices, so what is recorded here is configuration
  * that ships with the service rather than rows somebody's verification script left behind. That
  * distinction decided what this suite records and what `micro-worlds` does not — see its header.
