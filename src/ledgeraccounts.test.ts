@@ -17,10 +17,11 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { describe, it } from 'node:test'
 
 import {
+  type AccountClaim,
   BASELINE_UNRESOLVED,
   CANONICAL_ACCOUNTS,
   MIN_SERVICES,
@@ -31,6 +32,35 @@ import {
   subjectKindOf,
   sweepEstate,
 } from './ledgeraccounts.ts'
+
+/**
+ * One repository on disk, swept.
+ *
+ * Files rather than strings, and a whole repository rather than one file, because that is the unit
+ * the resolver works in and the single-file fixtures above cannot express the thing every case in
+ * `resolving a subject the estate actually writes` is about: the value is in ANOTHER FILE. Writing
+ * these as two source strings passed to `extractAccountClaims` would have passed while proving the
+ * opposite of what they claim.
+ */
+function sweepOneRepo(files: Readonly<Record<string, string>>, service = 'svc'): AccountClaim[] {
+  const dir = mkdtempSync(join(tmpdir(), 'cf-repo-'))
+  try {
+    for (const [name, source] of Object.entries(files)) {
+      const full = join(dir, service, 'src', name)
+      mkdirSync(dirname(full), { recursive: true })
+      writeFileSync(full, source)
+    }
+    return [...sweepEstate({ estateDir: dir, exclude: [] }).claims]
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** The one claim a fixture is about, or a readable failure naming what was actually found. */
+function oneClaim(claims: readonly AccountClaim[]): AccountClaim {
+  assert.equal(claims.length, 1, claims.map((c) => `${c.file}:${c.line} ${c.subject}/${c.purpose}`).join(', '))
+  return claims[0] as AccountClaim
+}
 
 /** micro-market, micro-trade, micro-wallet et al: the platform fee line, credited. */
 const REVENUE_SOURCE = `
@@ -334,6 +364,367 @@ describe('the chart itself', () => {
     assert.equal(subjectKindOf('user:01H'), 'user')
     assert.equal(subjectKindOf('chain:ethereum'), 'chain')
     assert.equal(subjectKindOf('nonsense'), '*')
+  })
+})
+
+describe('resolving a subject the estate actually writes', () => {
+  // Every claim micro-org#264 lists holds its subject in a function PARAMETER, and the value is
+  // decided by a caller in another file. These cases are that shape, and the first one is the
+  // defect this whole module exists to catch — reachable only because of the cross-file pass.
+
+  it('goes RED on a wrong type whose subject is only knowable from ANOTHER FILE', () => {
+    const client = `
+      export function rewardPostings(input: { readonly subject: string; readonly amount: bigint }) {
+        return [
+          { account: { subject: input.subject, assetCode: 'SHARD', purpose: 'fees', type: 'expense' } },
+        ]
+      }
+    `
+    // The caller, and the only place in the repository that says whose account it is.
+    const caller = `
+      import { rewardPostings } from './ledgerclient.ts'
+      export function pay(amount: bigint) {
+        return rewardPostings({ subject: 'platform', amount })
+      }
+    `
+    const claim = oneClaim(sweepOneRepo({ 'ledgerclient.ts': client, 'rewards.ts': caller }, 'emberkin'))
+    assert.equal(claim.subject, 'platform')
+    assert.equal(claim.unresolved, false)
+
+    const result = reconcileAccountClaims([claim])
+    assert.equal(result.uncanonical.length, 1, formatReconciliation(result))
+    assert.equal(result.uncanonical[0]?.expected, 'revenue')
+    assert.equal(result.ok, false)
+
+    // And the proof that the CROSS-FILE pass is what found it: the same file read alone is blind.
+    const alone = extractAccountClaims('emberkin', 'src/ledgerclient.ts', client)
+    assert.equal(alone[0]?.subject, '*')
+    assert.equal(reconcileAccountClaims(alone).uncanonical.length, 0)
+  })
+
+  it('follows a subject three hops, through two intermediate parameters', () => {
+    // `micro-mint`'s real shape: the account literal is in `ledgerclient.ts`, the subject is a
+    // parameter of `deployPostings`, whose caller passes a parameter of `payForDeploy`, whose
+    // caller is the route that finally writes `userSubject(userId)`.
+    const claims = sweepOneRepo({
+      'ledgerclient.ts': `
+        export function deployPostings(input: { readonly subject: string }) {
+          return [{ account: { subject: input.subject, assetCode: 'EMBER', purpose: 'available', type: 'liability' } }]
+        }
+      `,
+      'orders.ts': `
+        export function payForDeploy(request: { readonly ownerSubject: string }) {
+          return deployPostings({ subject: request.ownerSubject })
+        }
+      `,
+      'server.ts': `
+        export function route(userId: string) {
+          return payForDeploy({ ownerSubject: userSubject(userId) })
+        }
+      `,
+    })
+    assert.equal(oneClaim(claims).subject, 'user')
+  })
+
+  it('follows a name into a module-level constant in another file of the same repository', () => {
+    // `admin-api/src/actions.ts` writes `subject: ENGAGEMENT_TREASURY_SUBJECT`, one import away.
+    const claims = sweepOneRepo({
+      'engagement.ts': `export const TREASURY_SUBJECT = 'platform:engagement-treasury'`,
+      'actions.ts': `
+        import { TREASURY_SUBJECT } from './engagement.ts'
+        const account = { subject: TREASURY_SUBJECT, assetCode: 'SHARD', purpose: 'treasury', type: 'equity' }
+      `,
+    })
+    assert.equal(oneClaim(claims).subject, 'engagement-treasury')
+  })
+
+  it('follows a call into a one-line helper in another file', () => {
+    // `engagementSubjectOf(service)` — admin-api again, and the answer is in the helper's `return`.
+    const claims = sweepOneRepo({
+      'engagement.ts': `export function subjectOf(service: string): string { return \`engagement:\${service}\` }`,
+      'actions.ts': `
+        import { subjectOf } from './engagement.ts'
+        const account = { subject: subjectOf('worlds'), assetCode: 'SHARD', purpose: 'treasury', type: 'equity' }
+      `,
+    })
+    assert.equal(oneClaim(claims).subject, 'engagement')
+  })
+
+  it('sees through a cast, which used to make a site LESS readable than the same code without one', () => {
+    // `ledger/src/entries.ts` writes `request.subject as EnsureAccountInput['subject']`.
+    const claims = sweepOneRepo({
+      'entries.ts': `
+        export function reserve(request: { readonly subject: string }) {
+          return [{ account: { subject: request.subject as Subject, assetCode: 'EMBER', purpose: 'reserved', type: 'liability' } }]
+        }
+      `,
+      'server.ts': `export function route(id: string) { return reserve({ subject: userSubject(id) }) }`,
+    })
+    assert.equal(oneClaim(claims).subject, 'user')
+  })
+
+  it('reads a parameter ANNOTATION when it narrows, with no call site at all', () => {
+    // The half of #264 that is about types rather than call sites. It resolves here because the
+    // annotation is a closed set declared in this repository — see the next two cases for why it
+    // resolves nothing in the estate as it stands today.
+    const claims = sweepOneRepo({
+      'types.ts': `export type Holder = \`user:\${string}\``,
+      'client.ts': `
+        import type { Holder } from './types.ts'
+        export function postings(subject: Holder) {
+          return [{ account: { subject, assetCode: 'EMBER', purpose: 'available', type: 'liability' } }]
+        }
+      `,
+    })
+    assert.equal(oneClaim(claims).subject, 'user')
+  })
+})
+
+describe('what it refuses to resolve, and why each refusal is the honest answer', () => {
+  it('a `string` annotation resolves NOTHING, which is what #264 proposed and why it was not enough', () => {
+    // Measured against the estate before this was written: billing, emberkin, mint, worlds, beacon,
+    // market and foresight all annotate the subject `string`; community and ledger annotate it
+    // `AccountSubject`, which is the union of all nine spellings. Reading the annotation and
+    // stopping there would have resolved zero of the thirteen. Pinned so nobody re-derives it.
+    const claims = sweepOneRepo({
+      'client.ts': `
+        export function postings(subject: string) {
+          return [{ account: { subject, assetCode: 'EMBER', purpose: 'available', type: 'liability' } }]
+        }
+      `,
+      'caller.ts': `export function pay(row: { subject: string }) { return postings(row.subject) }`,
+    })
+    assert.equal(oneClaim(claims).subject, '*')
+  })
+
+  it('an annotation spanning every kind is worth no more than the wildcard it would replace', () => {
+    const claims = sweepOneRepo({
+      'types.ts': `export type AnySubject = \`user:\${string}\` | 'platform' | 'custody'`,
+      'client.ts': `
+        import type { AnySubject } from './types.ts'
+        export function postings(subject: AnySubject) {
+          return [{ account: { subject, assetCode: 'EMBER', purpose: 'available', type: 'liability' } }]
+        }
+      `,
+    })
+    assert.equal(oneClaim(claims).subject, '*')
+  })
+
+  it('a type this repository does not declare is left unresolved rather than guessed', () => {
+    // `AccountSubject` lives in micro-contracts. There is no module resolver here — 24 repositories,
+    // no shared tsconfig — so an unknown name is another repository's, and a guess about it would be
+    // exactly the cross-service assumption this module exists to catch rather than commit.
+    const claims = sweepOneRepo({
+      'client.ts': `
+        import type { AccountSubject } from '@cloudsforge/contracts-money'
+        export function postings(subject: AccountSubject) {
+          return [{ account: { subject, assetCode: 'EMBER', purpose: 'available', type: 'liability' } }]
+        }
+      `,
+    })
+    assert.equal(oneClaim(claims).subject, '*')
+  })
+
+  it('a name declared TWICE in one repository resolves to nothing', () => {
+    // Call sites are matched by TEXT, so two declarations mean a call could be either. A coin toss
+    // that lands right nine times in ten is worse than a wildcard: the wildcard is counted.
+    const claims = sweepOneRepo({
+      'a.ts': `
+        export function postings(subject: string) {
+          return [{ account: { subject, assetCode: 'EMBER', purpose: 'available', type: 'liability' } }]
+        }
+      `,
+      'b.ts': `export function postings(subject: string) { return subject }`,
+      'caller.ts': `export function pay() { return postings('platform') }`,
+    })
+    assert.equal(oneClaim(claims).subject, '*')
+  })
+
+  it('a helper nothing in the repository calls resolves to nothing', () => {
+    // An exported helper the ESTATE calls from another repository. Its callers are genuinely out of
+    // reach, and "no call site" must not read as "no disagreement".
+    const claims = sweepOneRepo({
+      'client.ts': `
+        export function postings(subject: string) {
+          return [{ account: { subject, assetCode: 'EMBER', purpose: 'available', type: 'liability' } }]
+        }
+      `,
+    })
+    assert.equal(oneClaim(claims).subject, '*')
+  })
+
+  it('call sites that DISAGREE resolve to nothing rather than to whichever was read last', () => {
+    // `billing`'s `purchasePostings` is called with a parsed user subject from one file and a
+    // subscription row's subject from another. The claim is about both, and neither is knowable.
+    const claims = sweepOneRepo({
+      'client.ts': `
+        export function postings(subject: string) {
+          return [{ account: { subject, assetCode: 'EMBER', purpose: 'available', type: 'liability' } }]
+        }
+      `,
+      'one.ts': `export function a() { return postings('platform') }`,
+      'two.ts': `export function b(id: string) { return postings(userSubject(id)) }`,
+    })
+    assert.equal(oneClaim(claims).subject, '*')
+  })
+})
+
+describe('a purpose that is a closed set of purposes, not an unknown one', () => {
+  it('expands a literal-union parameter into one claim per purpose, in ONE place', () => {
+    // `foresight/src/custodialstakes.ts`: `userAccount(subject, assetCode, purpose: 'available' |
+    // 'escrow')` returning `type: 'liability'`. Two accounts, both stated, both checkable.
+    const claims = sweepOneRepo({
+      'stakes.ts': `
+        function userAccount(subject: string, assetCode: string, purpose: 'available' | 'escrow') {
+          return { subject, assetCode, purpose, type: 'liability' }
+        }
+        export function settle(stake: { subject: string }) {
+          return userAccount(stake.subject, 'EMBER', 'escrow')
+        }
+      `,
+    })
+    assert.deepEqual(
+      claims.map((claim) => claim.purpose).sort(),
+      ['available', 'escrow'],
+    )
+    assert.equal(new Set(claims.map((claim) => `${claim.file}:${claim.line}`)).size, 1, 'one literal')
+
+    // ...and the budget counts the PLACE, not the claims, or reading the literal better would look
+    // like the blind spot doubling.
+    const result = reconcileAccountClaims(claims, { maxUnresolved: 1 })
+    assert.equal(result.unresolved.length, 2)
+    assert.equal(result.unresolvedSites, 1)
+    assert.equal(result.ok, true, formatReconciliation(result))
+    // One line in the report, too. Two identical lines read as two things to go and fix.
+    const printed = formatReconciliation(result).split('\n').filter((line) => line.includes('stakes.ts'))
+    assert.equal(printed.length, 1, printed.join(' | '))
+  })
+
+  it('expands a ternary between two literals', () => {
+    // `ledger/src/entries.ts`: `posting.accountId === 'available' ? 'available' : 'reserved'`.
+    const source = `
+      const a = {
+        subject: 'clearing',
+        assetCode: 'EMBER',
+        purpose: id === 'available' ? 'available' : 'reserved',
+        type: 'clearing',
+      }
+    `
+    const claims = extractAccountClaims('ledger', 'src/entries.ts', source)
+    assert.deepEqual(
+      claims.map((claim) => claim.purpose).sort(),
+      ['available', 'reserved'],
+    )
+  })
+
+  it('collects the purposes a helper is actually CALLED with when its annotation is another repo\'s', () => {
+    // `market`'s `holder(subject, assetCode, purpose: AccountPurpose)`. The annotation is the whole
+    // vocabulary and says nothing; the three call sites say `available`, `reserved`, `payout_due`.
+    const claims = sweepOneRepo({
+      'client.ts': `
+        import type { AccountPurpose } from '@cloudsforge/contracts-money'
+        function holder(subject: string, purpose: AccountPurpose) {
+          return { subject, assetCode: 'EMBER', purpose, type: 'liability' }
+        }
+        export function one(s: string) { return holder(s, 'available') }
+        export function two(s: string) { return holder(s, 'reserved') }
+        export function three(s: string) { return holder(s, 'payout_due') }
+      `,
+    })
+    assert.deepEqual(
+      claims.map((claim) => claim.purpose).sort(),
+      ['available', 'payout_due', 'reserved'],
+    )
+  })
+
+  it('refuses a purpose set that spans the whole vocabulary rather than inventing seven accounts', () => {
+    // The dangerous half of expansion. `(*, *, fees) → liability` is IMPLAUSIBLE against the chart,
+    // so reading a full-vocabulary annotation as seven claims would manufacture a red out of a
+    // helper no caller ever passes `fees` to. `AccountPurpose` spelled out is exactly this shape,
+    // and it is why the expansion is capped rather than unbounded.
+    const claims = sweepOneRepo({
+      'client.ts': `
+        export function account(
+          subject: string,
+          purpose: 'available' | 'reserved' | 'escrow' | 'treasury' | 'fees' | 'payout_due' | 'suspense',
+        ) {
+          return { subject, assetCode: 'EMBER', purpose, type: 'liability' }
+        }
+      `,
+    })
+    assert.equal(oneClaim(claims).purpose, '*')
+    assert.equal(reconcileAccountClaims(claims).implausible.length, 0)
+  })
+
+  it('takes the call sites when the annotation is too wide to mean anything', () => {
+    // Same helper, one caller. The annotation is worth nothing, but `available` is a purpose this
+    // repository really does claim `liability` for, and a wildcard here would throw that away.
+    const claims = sweepOneRepo({
+      'client.ts': `
+        function account(
+          subject: string,
+          purpose: 'available' | 'reserved' | 'escrow' | 'treasury' | 'fees' | 'payout_due' | 'suspense',
+        ) {
+          return { subject, assetCode: 'EMBER', purpose, type: 'liability' }
+        }
+        export function use(s: string) { return account(s, 'available') }
+      `,
+    })
+    assert.equal(oneClaim(claims).purpose, 'available')
+  })
+
+  it('does NOT expand a type union, because half the cross product is an account nobody claims', () => {
+    // `market/src/engagement.ts` takes `{ purpose: 'available' | 'fees'; type: 'liability' |
+    // 'revenue' }` and its two callers pair them `available/liability` and `fees/revenue`. Expanding
+    // both would invent `fees/liability` and `available/revenue` — and `available/revenue` is
+    // precisely the shape the `implausible` pass exists to report. Inventing a finding and finding
+    // one are indistinguishable in a report.
+    const claims = sweepOneRepo({
+      'engagement.ts': `
+        export function grantPostings(input: {
+          readonly beneficiary: { readonly purpose: 'available' | 'fees'; readonly type: 'liability' | 'revenue' }
+        }) {
+          return [{ account: { subject: 'platform', assetCode: 'SHARD', purpose: input.beneficiary.purpose, type: input.beneficiary.type } }]
+        }
+      `,
+    })
+    assert.deepEqual(
+      claims.map((claim) => claim.purpose).sort(),
+      ['available', 'fees'],
+    )
+    for (const claim of claims) assert.equal(claim.type, '*')
+    assert.equal(reconcileAccountClaims(claims).implausible.length, 0)
+  })
+})
+
+describe('a wildcard subject stays out of the pairwise pass, and this is the counterexample', () => {
+  it('does NOT report the estate\'s most-copied pair of postings as a disagreement', () => {
+    // micro-org#264 asks for wildcard claims to join the disagreement pass: "(*, *, available) →
+    // liability … conflicts with any claim of purpose `available` and a different type". The chart
+    // in this very file says otherwise — `custody/available` is an `asset` and `user/available` is
+    // a `liability`, both correct, both on every deposit micro-wallet has ever posted. Admitting
+    // the wildcard would have turned that pair red on the first run.
+    const claims = [
+      ...extractAccountClaims('wallet', 'src/deposits.ts', `const a = { subject: 'custody', assetCode: 'EMBER', purpose: 'available', type: 'asset' }`),
+      ...extractAccountClaims('billing', 'src/ledger.ts', `const b = { subject: input.subject, assetCode: 'EMBER', purpose: 'available', type: 'liability' }`),
+    ]
+    const result = reconcileAccountClaims(claims, { maxUnresolved: 1 })
+    assert.equal(result.disagreements.length, 0, formatReconciliation(result))
+    assert.equal(result.ok, true, formatReconciliation(result))
+  })
+
+  it('but the same claim is still JUDGED, by the pass that needs no subject', () => {
+    // The sound version of #264's idea, and it was already here. "Reported and counted, never
+    // checked" was not true of the ten claims whose purpose and type were both readable.
+    const claims = extractAccountClaims(
+      'rogue',
+      'src/x.ts',
+      `const b = { subject: input.subject, assetCode: 'EMBER', purpose: 'available', type: 'revenue' }`,
+    )
+    const result = reconcileAccountClaims(claims, { maxUnresolved: 9 })
+    assert.equal(result.unresolved.length, 1)
+    assert.equal(result.implausible.length, 1)
+    assert.equal(result.ok, false)
   })
 })
 
