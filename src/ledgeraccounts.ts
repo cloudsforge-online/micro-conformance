@@ -486,10 +486,11 @@ export interface SweepOptions {
 export const DEFAULT_EXCLUDED = Object.freeze(['conformance'])
 
 /**
- * How many account literals the estate currently writes in a way this cannot resolve — 12, listed
- * by name and line in `formatReconciliation`. Eleven hold their `subject` in a function parameter
- * or a property of an argument; one (`ledger/src/entries.ts`) also picks its `purpose` with a
- * ternary.
+ * How many account literals the estate currently writes in a way this cannot resolve — 13, listed
+ * by name and line in `formatReconciliation`. Every one of them holds its `subject` in a function
+ * parameter or a property of an argument; three (`ledger/src/entries.ts`,
+ * `market/src/ledgerclient.ts`, `foresight/src/custodialstakes.ts`) also take their `purpose` from
+ * something that is not a literal.
  *
  * **Recorded as a number that must not grow, rather than tolerated in silence.** A static check
  * over source it cannot fully resolve has a blind spot; a blind spot nobody measures is how a check
@@ -518,8 +519,36 @@ export const DEFAULT_EXCLUDED = Object.freeze(['conformance'])
  * **What is NOT acceptable is raising this again without reading the new line.** The number is the
  * measurement of the blind spot; a budget that moves whenever it is inconvenient measures nothing.
  * ──────────────────────────────────────────────────────────────────────────────────────────────
+ * **RAISED FROM 12 TO 13 ON 2026-08-08, AND HERE IS THE NEW LINE, READ.**
+ *
+ * The thirteenth is `foresight/src/custodialstakes.ts:444`, added 2026-08-05 by
+ * `feat(stakes): let a bettor bring BTC or ETH, without splitting the pool`. It is not an inline
+ * literal at all but the return of a two-line helper — `userAccount(subject, assetCode, purpose:
+ * 'available' | 'escrow')` returning `{ subject, assetCode, purpose, type: 'liability' }` — so
+ * both the subject and the purpose arrive as parameters and the extractor sees three shorthand
+ * properties bound to nothing it can follow.
+ *
+ * Raised rather than resolved, and the argument is the same one the 11→12 entry makes plus one
+ * more that is specific to this line. The generic half: the same run still reports **"no two
+ * services claim one account key with two types"**, so nothing resolvable disagrees. The specific
+ * half: this claim's purposes are not unknown, they are *enumerated in the parameter's own type*,
+ * and both readings agree with the chart this file already keeps — `CANONICAL_ACCOUNTS` states
+ * `(user, escrow) → liability` in as many words, and `(subject, asset, available) → liability` is
+ * what billing, community, emberkin, market, mint and worlds all state. The helper sits beside
+ * foresight's clearing account, which IS resolvable and is `wallet/src/money.ts:103` verbatim —
+ * `subject: 'clearing'`, `purpose: 'available'`, `type: 'clearing'` — so the one claim in that file
+ * this check can read confirms the file is copying wallet rather than improvising. The blind spot
+ * grew by an entry that can be checked by hand, and it passes.
+ *
+ * It is NOT raised because resolving it is hard. It is raised because resolving it properly is the
+ * SAME work the 11→12 entry deferred — following a subject through a parameter — and doing half of
+ * it here would resolve `purpose` while leaving `subject` a wildcard, which changes no verdict and
+ * costs a reader the honest count. That work is now written down as micro-org#264 rather than left
+ * as a sentence in a comment, which is the only real difference between this raise and the last
+ * one. If a fourteenth arrives before #264 lands, the answer is #264, not 14.
+ * ──────────────────────────────────────────────────────────────────────────────────────────────
  */
-export const BASELINE_UNRESOLVED = 12
+export const BASELINE_UNRESOLVED = 13
 
 /**
  * The smallest number of repositories a sweep may read and still claim to have swept the estate.
