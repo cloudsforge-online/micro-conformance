@@ -528,10 +528,15 @@ function doLedgerAccounts(flags: Flags): number {
     )
     return 1
   }
-  if (result.unresolved.length > flags.maxUnresolved) {
+  // PLACES, not claims, and it has to be the same number `reconcileAccountClaims` grades on or the
+  // CLI and the gate disagree about what failed. One literal can yield several claims — a purpose
+  // written as `'available' | 'escrow'` is two accounts — and a message that counted those would
+  // report a blind spot growing at the moment it shrank.
+  if (result.unresolvedSites > flags.maxUnresolved) {
     console.error(
-      `${result.unresolved.length} unresolvable account literals, budget ${flags.maxUnresolved}. ` +
-        'Each one is an account whose key this cannot read; raise the budget only with a reason.',
+      `${result.unresolvedSites} places write an account this cannot fully read, budget ` +
+        `${flags.maxUnresolved}. Each one is an account whose key this cannot resolve; raise the ` +
+        'budget only with a reason, written down beside BASELINE_UNRESOLVED.',
     )
   }
   console.log(result.ok ? 'OK — the estate agrees on every account type it states' : 'FAILED')
