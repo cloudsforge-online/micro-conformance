@@ -32,6 +32,7 @@ import {
   reconcileAccountClaims,
   subjectGrammarDrift,
   subjectKindOf,
+  accountSubjectConstants,
   sweepEstate,
 } from './ledgeraccounts.ts'
 
@@ -806,3 +807,128 @@ describe('a wildcard subject stays out of the pairwise pass, and this is the cou
 // cannot come from an empty directory. The report says so. Making it automatic needs a workflow
 // change in `micro-org`, which is described in this task's report rather than done here.
 // ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * A CONSTANT IMPORTED FROM micro-contracts, AND WHY THE SWEEP HAD TO LEARN TO READ ONE
+ *
+ * micro-org#372 was `subject: 'exchange'` written as a literal in `trade/src/transfers.ts` against
+ * a grammar with no such subject. The fix registered `EXCHANGE` in contracts-money and imported
+ * it, so that a subject a service invents is a compile error rather than a `RangeError` inside the
+ * ledger's `ensureAccount`.
+ *
+ * That repair made this sweep read the site WORSE. `index.values` is built per repository, so an
+ * identifier declared in another checkout resolved to nothing, the claim stayed unresolved, and the
+ * budget line the fix was supposed to remove stayed exactly where it was — with the reported text
+ * changed from a wrong literal to a right identifier. **A tool that penalises the fix it asked for
+ * teaches people to write the literal back.**
+ *
+ * The lookup is narrow on purpose and is the only cross-repository one this module permits: one
+ * package, one file, `export const NAME: AccountSubject = '<literal>'`, and nothing followed.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('a subject imported from micro-contracts', () => {
+  const MONEY = `
+export type AccountSubject =
+  | \`user:\${string}\`
+  | 'platform'
+  | 'custody'
+  | 'clearing'
+  | 'exchange'
+
+export const PLATFORM: AccountSubject = 'platform'
+export const EXCHANGE: AccountSubject = 'exchange'
+const NOT_EXPORTED: AccountSubject = 'custody'
+export const NOT_A_SUBJECT = 'exchange'
+export const ENGAGEMENT_GRANT_KIND = 'grant'
+`
+
+  const TRADE = `
+import { EXCHANGE } from '@cloudsforge/contracts-money'
+export function transferPostings(input: { asset: string }) {
+  return [{ subject: EXCHANGE, assetCode: input.asset, purpose: 'escrow', type: 'liability' }]
+}
+`
+
+  /** Lays down a real estate: one service, and micro-contracts where the constant lives. */
+  const sweepWith = (money: string | null, service = TRADE): AccountClaim[] => {
+    const dir = mkdtempSync(join(tmpdir(), 'cf-const-'))
+    try {
+      const svc = join(dir, 'trade', 'src', 'transfers.ts')
+      mkdirSync(dirname(svc), { recursive: true })
+      writeFileSync(svc, service)
+      if (money !== null) {
+        const contracts = join(dir, 'contracts', 'packages', 'money', 'src', 'index.ts')
+        mkdirSync(dirname(contracts), { recursive: true })
+        writeFileSync(contracts, money)
+      }
+      return sweepEstate({ estateDir: dir, exclude: [] }).claims.filter((c) => c.service === 'trade')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  it('resolves the subject, so importing the constant costs no blind spot — micro-org#372', () => {
+    const claims = sweepWith(MONEY)
+    assert.equal(claims.length, 1)
+    const claim = claims[0]!
+    assert.equal(claim.subject, 'exchange')
+    assert.equal(claim.subjectText, 'exchange')
+    assert.equal(claim.unresolved, false)
+  })
+
+  /*
+   * The mutation is BUILT IN rather than applied by hand: the same service source, swept against an
+   * estate with no micro-contracts in it, is the state this repository was in before this change.
+   * If the assertion above ever passes for a reason other than the lookup, this one passes too and
+   * the pair contradict each other.
+   */
+  it('is unresolved when micro-contracts is not there to say what it means', () => {
+    const claims = sweepWith(null)
+    assert.equal(claims.length, 1)
+    assert.equal(claims[0]!.subject, '*')
+    assert.equal(claims[0]!.unresolved, true)
+  })
+
+  it('reads only exported constants annotated AccountSubject, and follows nothing', () => {
+    const found = accountSubjectConstants(MONEY)
+    assert.deepEqual([...found.entries()].sort(), [
+      ['EXCHANGE', 'exchange'],
+      ['PLATFORM', 'platform'],
+    ])
+    // Not exported: no service can import it, so resolving it would be answering about a name that
+    // cannot appear at a call site.
+    assert.equal(found.has('NOT_EXPORTED'), false)
+    // Exported and a string, but NOT annotated `AccountSubject`. Reading it would let any exported
+    // upper-case string in that file stand in for a subject, which is how a sweep starts blessing
+    // spellings the ledger throws on.
+    assert.equal(found.has('NOT_A_SUBJECT'), false)
+    assert.equal(found.has('ENGAGEMENT_GRANT_KIND'), false)
+  })
+
+  it('resolves a constant to whatever contracts says it is, not to what the name suggests', () => {
+    // The name is the same; the value is a subject this grammar does not have. The claim must read
+    // as `*` and cost its budget line, because that is what the ledger would do with it.
+    const claims = sweepWith(MONEY.replace("EXCHANGE: AccountSubject = 'exchange'", "EXCHANGE: AccountSubject = 'exchange-omnibus'"))
+    assert.equal(claims[0]!.subject, '*')
+    assert.equal(claims[0]!.unresolved, true)
+  })
+
+  /*
+   * A local declaration must still win. Otherwise a service with its own `const EXCHANGE` — a
+   * different value entirely — would be reported as contracts' subject, which is the cross-service
+   * guess `repoResolver`'s header refuses.
+   */
+  it('lets a name declared in the service itself answer for itself', () => {
+    const claims = sweepWith(
+      MONEY,
+      `
+const EXCHANGE = 'platform'
+export function postings() {
+  return [{ subject: EXCHANGE, purpose: 'escrow', type: 'liability' }]
+}
+`,
+    )
+    assert.equal(claims[0]!.subject, 'platform')
+  })
+})
