@@ -356,6 +356,28 @@ export function subjectGrammarDrift(moneySource: string): GrammarDrift {
   return { unknown, retired, unreadable: false }
 }
 
+/**
+ * The `AccountSubject` constants micro-contracts exports, by name, read from its source.
+ *
+ * Derived rather than listed, for the same reason `subjectGrammarDrift` compares tables instead of
+ * checking a hand-written roster: a list here would be a third copy of a set that already exists
+ * twice, and the third copy is the one nobody updates. A constant added to contracts is resolvable
+ * by this sweep the moment it is added, and a constant RENAMED there stops resolving — which is
+ * correct, because the old name is then a name no service can import.
+ *
+ * Only `export const NAME: AccountSubject = '<literal>'` is read. A constant whose value is a
+ * template, a call or another constant is deliberately not followed: it would need a resolver over
+ * a repository this function is not given, and the honest answer for a shape this cannot read is
+ * to leave the site unresolved and let it cost a budget line.
+ */
+export function accountSubjectConstants(moneySource: string): ReadonlyMap<string, string> {
+  const found = new Map<string, string>()
+  for (const match of moneySource.matchAll(/export const ([A-Z][A-Z0-9_]*): AccountSubject = '([^']+)'/g)) {
+    found.set(match[1] as string, match[2] as string)
+  }
+  return found
+}
+
 /** The one line a report prints about the grammar, or null when the two agree. */
 export function formatGrammarDrift(drift: GrammarDrift): string | null {
   if (drift.unreadable) {
@@ -605,7 +627,23 @@ const UNKNOWN_SUBJECT: { kind: SubjectKind; text: string | null } = { kind: '*',
  * `holder` be answered by `micro-mint`'s call sites, which is exactly the cross-service guess this
  * whole module exists to catch rather than commit.
  */
-export function repoResolver(sources: readonly RepoSource[]): Resolver {
+export function repoResolver(
+  sources: readonly RepoSource[],
+  /**
+   * The `AccountSubject` constants micro-contracts exports, by name — see
+   * `accountSubjectConstants`. Empty by default, and empty is the OLD behaviour rather than a
+   * silent pass: an identifier that resolves to nothing still reads `*` and still costs a line of
+   * the unresolved budget.
+   *
+   * This is the ONE cross-repository lookup this module permits, and the exception is narrow on
+   * purpose. The header above refuses to let `micro-mint`'s call sites answer for `micro-market`'s
+   * `holder`, because that is a guess about a name two services happen to share. This is not that:
+   * the name is imported from a single package every service depends on by version, its value is a
+   * string literal in that package's source, and `subjectGrammarDrift` already fails the run if
+   * that source cannot be read at all.
+   */
+  constants: ReadonlyMap<string, string> = new Map(),
+): Resolver {
   const index = buildIndex(sources)
 
   const only = <T>(list: readonly T[] | undefined): T | null => (list && list.length === 1 ? (list[0] as T) : null)
@@ -858,6 +896,22 @@ export function repoResolver(sources: readonly RepoSource[]): Resolver {
         // repository — on disk, already parsed, and unique.
         const value = only(index.values.get(expression.text))
         if (value) return subjectAt(value.expr, value.tree, path, depth + 1, seen)
+
+        // A name imported from micro-contracts. `trade/src/transfers.ts` writes
+        // `subject: EXCHANGE`, and the value is a string literal in
+        // `contracts/packages/money/src/index.ts` — another repository, so `index.values` cannot
+        // hold it and every reader before this one answered `*`.
+        //
+        // **This mattered, and it mattered in the direction nobody expects.** micro-org#372 was
+        // fixed by replacing the literal `'exchange'` with the constant, precisely so a subject a
+        // service invents is a compile error rather than a runtime one. That repair made this
+        // sweep read the site LESS well than the defect had: the budget line stayed, and the
+        // reported text changed from a wrong literal to a right identifier. A tool that penalises
+        // the fix it asked for teaches people to write the literal back.
+        if (path.length === 0) {
+          const declared = constants.get(expression.text)
+          if (declared !== undefined) return { kind: subjectKindOf(declared), text: declared }
+        }
         return UNKNOWN_SUBJECT
       }
 
@@ -1242,6 +1296,26 @@ export function sweepEstate(options: SweepOptions): SweepResult {
     throw new Error(`no estate at ${options.estateDir}: ${String(err)}`)
   }
 
+  /*
+   * micro-contracts' `AccountSubject` constants, read ONCE for the whole sweep and handed to every
+   * repository's resolver. See `repoResolver`'s second parameter for why this one cross-repository
+   * lookup is permitted where the rest are refused.
+   *
+   * Read here rather than taken as an option because the sweep already knows where the estate is,
+   * and a caller that had to supply it would be a caller that could forget to. Unreadable is the
+   * empty map — which resolves nothing and costs a budget line per site, the same as before this
+   * existed. The CLI's grammar check fails the run loudly on the same file, so a silent empty map
+   * cannot be the only signal that contracts is missing.
+   */
+  let subjectConstants: ReadonlyMap<string, string> = new Map()
+  try {
+    subjectConstants = accountSubjectConstants(
+      readFileSync(join(options.estateDir, 'contracts', 'packages', 'money', 'src', 'index.ts'), 'utf8'),
+    )
+  } catch {
+    subjectConstants = new Map()
+  }
+
   for (const repo of repos) {
     if (SKIP_DIRS.has(repo)) continue
     if (excluded.includes(repo)) continue
@@ -1292,7 +1366,7 @@ export function sweepEstate(options: SweepOptions): SweepResult {
       parsed.push({ file: relativeFile, tree: parseSource(relativeFile, text) })
     }
 
-    const resolver = repoResolver(parsed)
+    const resolver = repoResolver(parsed, subjectConstants)
     for (const source of parsed) claims.push(...claimsFromTree(repo, source.file, source.tree, resolver))
   }
 
