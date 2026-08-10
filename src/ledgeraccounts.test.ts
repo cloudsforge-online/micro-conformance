@@ -27,8 +27,10 @@ import {
   MIN_SERVICES,
   UnreadableSourceError,
   extractAccountClaims,
+  formatGrammarDrift,
   formatReconciliation,
   reconcileAccountClaims,
+  subjectGrammarDrift,
   subjectKindOf,
   sweepEstate,
 } from './ledgeraccounts.ts'
@@ -363,7 +365,69 @@ describe('the chart itself', () => {
     assert.equal(subjectKindOf('engagement:worlds'), 'engagement')
     assert.equal(subjectKindOf('user:01H'), 'user')
     assert.equal(subjectKindOf('chain:ethereum'), 'chain')
+    assert.equal(subjectKindOf('exchange'), 'exchange')
     assert.equal(subjectKindOf('nonsense'), '*')
+  })
+})
+
+/**
+ * The case above asserts six hand-written strings, and six hand-written strings cannot notice a
+ * subject `micro-contracts` adds or retires. micro-org#372 is what that costs: `micro-trade` wrote
+ * `subject: 'exchange'`, no grammar had it, and the sweep reported it as a line it could not read
+ * rather than as a posting the ledger would throw on.
+ *
+ * The fixtures are source text, so these run in this repository's own CI with no estate on disk —
+ * the same reason every case in this file is a string. `doLedgerAccounts` is what points the
+ * function at the real `micro-contracts` checkout, and estate-ci is what runs that.
+ */
+describe('the subject grammar, against the file that decides it', () => {
+  const union = (...members: readonly string[]): string =>
+    `export type AccountSubject =\n${members.map((m) => `  | ${m}\n`).join('')}\nexport type ParsedSubject =\n`
+
+  const TODAY = union(
+    '`user:${string}`',
+    '`community:${string}`',
+    '`organisation:${string}`',
+    "'platform'",
+    "'custody'",
+    "'clearing'",
+    "'exchange'",
+    "'platform:engagement-treasury'",
+    '`engagement:${string}`',
+    '`chain:${string}`',
+  )
+
+  it('agrees with the grammar as it stands', () => {
+    assert.deepEqual(subjectGrammarDrift(TODAY), { unknown: [], retired: [], unreadable: false })
+    assert.equal(formatGrammarDrift(subjectGrammarDrift(TODAY)), null)
+  })
+
+  it('goes RED on a subject contracts declares and this sweep cannot classify — micro-org#372', () => {
+    const withNewSubject = TODAY.replace("  | 'exchange'\n", "  | 'exchange'\n  | 'settlement'\n")
+    const drift = subjectGrammarDrift(withNewSubject)
+    assert.deepEqual([...drift.unknown], ['settlement'])
+    assert.equal(drift.retired.length, 0)
+    assert.match(formatGrammarDrift(drift) ?? '', /counted unreadable instead of judged/)
+  })
+
+  it('goes RED on a PREFIXED subject contracts declares and this sweep cannot classify', () => {
+    const drift = subjectGrammarDrift(TODAY.replace('  | `chain:${string}`\n', '  | `chain:${string}`\n  | `vault:${string}`\n'))
+    assert.deepEqual([...drift.unknown], ['vault:<id>'])
+  })
+
+  it('goes RED the other way too — a kind here contracts has retired would bless a refused spelling', () => {
+    const drift = subjectGrammarDrift(TODAY.replace("  | 'clearing'\n", ''))
+    assert.deepEqual([...drift.retired], ['clearing'])
+    assert.equal(drift.unknown.length, 0)
+    assert.match(formatGrammarDrift(drift) ?? '', /the ledger throws on/)
+  })
+
+  it('reports a union it could not read as UNCHECKED, never as agreement', () => {
+    for (const source of ['', 'export type AccountSubject = string\n', 'export type Something = 1\n']) {
+      const drift = subjectGrammarDrift(source)
+      assert.equal(drift.unreadable, true, `'${source.slice(0, 30)}' must not read as agreement`)
+      assert.match(formatGrammarDrift(drift) ?? '', /UNCHECKED, which is not the same as agreed/)
+    }
   })
 })
 

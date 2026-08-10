@@ -16,7 +16,7 @@
  * corpus with a hole in it that reports success is worse than no corpus.
  */
 
-import { existsSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve as resolvePath } from 'node:path'
 import {
   BASELINE_BLIND_ROUTES,
@@ -33,7 +33,13 @@ import type { ComparisonReport, Difference } from './compare.ts'
 import { loadCorpus } from './corpus.ts'
 import { postsFor, publish, type SkippedScenario } from './publish.ts'
 import { assertSecretLiterals, baseNames, loadSecrets } from './env.ts'
-import { formatReconciliation, reconcileAccountClaims, sweepEstate } from './ledgeraccounts.ts'
+import {
+  formatGrammarDrift,
+  formatReconciliation,
+  reconcileAccountClaims,
+  subjectGrammarDrift,
+  sweepEstate,
+} from './ledgeraccounts.ts'
 import { BASELINE_UNRESOLVED, MIN_SERVICES } from './ledgeraccounts.ts'
 import { record } from './record.ts'
 import { ALL_SCENARIOS } from './scenarios/index.ts'
@@ -136,7 +142,9 @@ conformance — the CloudsForge characterisation harness
            Read every sibling repository's TypeScript and reconcile the ledger
            account TYPE each service claims per account key. Exits 1 when two
            services claim one key two ways, when a claim contradicts the chart,
-           or when more literals are unresolvable than the budget allows.
+           when more literals are unresolvable than the budget allows, or when
+           the subject grammar it restates disagrees with micro-contracts'
+           AccountSubject union in either direction.
            Needs the sibling checkouts on disk; it dials nothing.
 
   body-scan [--estate ..] [--max-blind-routes N] [--max-blind-to-every-check N] [--verbose]
@@ -526,6 +534,38 @@ function doLedgerAccounts(flags: Flags): number {
       `only ${sweep.services.length} repositories under ${flags.estate} — expected at least ` +
         `${MIN_SERVICES}. A sweep of a partial checkout cannot certify the estate.`,
     )
+    return 1
+  }
+
+  // The grammar `subjectKindOf` restates, judged against the file that decides it. It runs HERE
+  // rather than in this repository's own test suite because contracts is a SIBLING checkout, and a
+  // case that can only run where the estate is would skip in the one place that gates a merge —
+  // which is what let micro-org#372 reach the estate as an unreadable line rather than a defect.
+  //
+  // After the partial-checkout refusal above, so a four-repository run says which repositories are
+  // missing rather than complaining about the one it happened to look for first. A contracts
+  // checkout missing from a FULL estate is still a failure and not a skip: "the subject grammar
+  // agrees" said about a file that was not there is the kind of sentence this repository exists to
+  // stop printing.
+  const moneySource = join(flags.estate, 'contracts', 'packages', 'money', 'src', 'index.ts')
+  let grammarText: string | null = null
+  try {
+    grammarText = readFileSync(moneySource, 'utf8')
+  } catch {
+    grammarText = null
+  }
+  const drift =
+    grammarText === null
+      ? { unknown: [], retired: [], unreadable: true }
+      : subjectGrammarDrift(grammarText)
+  const driftReport = formatGrammarDrift(drift)
+  if (driftReport === null) {
+    console.log(`the subject grammar agrees with ${relative(process.cwd(), moneySource) || moneySource}`)
+  } else {
+    console.error(driftReport)
+    if (grammarText === null) console.error(`  ${moneySource} could not be read`)
+    console.log('')
+    console.log('FAILED')
     return 1
   }
   // PLACES, not claims, and it has to be the same number `reconcileAccountClaims` grades on or the
