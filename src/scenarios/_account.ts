@@ -56,6 +56,47 @@ export interface RegisterOptions {
 }
 
 /**
+ * The registration challenge, said out loud rather than left to read as an outage (micro-org#361).
+ *
+ * `POST /auth/register` may now be gated by a Cloudflare Turnstile. When it is, a caller with no
+ * solved challenge and no service-principal bearer is answered **403** with
+ * `challenge_required` — and this harness is exactly that caller. It holds no service credential
+ * and is not going to be given one: it runs from an operator's laptop, and a long-lived bearer
+ * that mints service tokens sitting in a dotfile there is a worse outcome than an unrecorded
+ * corpus. A `--base local` recording against the legacy estate is unaffected; nothing in front of
+ * Nimbus changed.
+ *
+ * **WHY THIS IS A MESSAGE AND NOT A BYPASS.** `require` already turns the 403 into a skip, so the
+ * harness does not go red either way. What it produced was "answered 403 without a usable session
+ * — no scenario below this can run", on every scenario in the run, which reads as identity being
+ * broken and is the sentence somebody would open an incident on. The estate is working; this tool
+ * is not allowed through it. Those are different facts and the manifest should carry the right one.
+ *
+ * The two codes are identity's own (`ChallengeError`, identity/src/server.ts): `challenge_required`
+ * is "nothing was sent", `challenge_failed` is "something was sent and did not hold". Only the
+ * first can happen here, and both are named because reading the second would be worth knowing —
+ * it would mean something in the path is inserting a token this harness never produced.
+ *
+ * A 503 (`challenge_unavailable`) is DELIBERATELY not in here. identity fails closed when it
+ * cannot reach Cloudflare, which means nobody in the world can register: that is an outage, it
+ * should read as one, and folding it in with these would hide it behind "the harness was not let
+ * through".
+ */
+const CHALLENGE_CODES: ReadonlySet<string> = new Set(['challenge_required', 'challenge_failed'])
+
+const CHALLENGE_SKIP =
+  'registration is challenged (Turnstile, micro-org#361) and this harness holds no service ' +
+  'credential to be excused it, so no authenticated surface can be recorded against this base. ' +
+  'The estate is not broken; ask identity GET /auth/challenge to confirm the gate is on.'
+
+/** The refusal code, if this response is the registration gate turning the harness away. */
+function challengeRefusal(status: number, body: unknown): string | null {
+  if (status !== 403) return null
+  const code = (body as { error?: { code?: unknown } } | null)?.error?.code
+  return typeof code === 'string' && CHALLENGE_CODES.has(code) ? code : null
+}
+
+/**
  * Register a throwaway account and return its credentials.
  *
  * Skips rather than fails on 429. Nimbus rate-limits registration to five per minute per IP and
@@ -81,6 +122,9 @@ export async function registerThrowaway(
   if (res.status === 429) {
     ctx.skip('Nimbus is rate-limiting registration (5/min per IP) — another harness got there first')
   }
+  const refusal = challengeRefusal(res.status, res.body)
+  if (refusal !== null) ctx.skip(`${CHALLENGE_SKIP} (${refusal})`)
+
   const body = res.body as { accessToken?: string; refreshToken?: string; user?: { id?: string } } | null
   ctx.require(
     res.status === 201 && body?.accessToken && body?.refreshToken && body?.user?.id,
@@ -143,6 +187,9 @@ export async function sharedThrowaway(ctx: ScenarioContext): Promise<ThrowawayAc
   if (res.status === 429) {
     ctx.skip('Nimbus is rate-limiting registration (5/min per IP) — another harness got there first')
   }
+  const refusal = challengeRefusal(res.status, res.body)
+  if (refusal !== null) ctx.skip(`${CHALLENGE_SKIP} (${refusal})`)
+
   const body = res.body as { accessToken?: string; refreshToken?: string; user?: { id?: string } } | null
   ctx.require(
     res.status === 201 && body?.accessToken && body?.refreshToken && body?.user?.id,
