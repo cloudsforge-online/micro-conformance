@@ -92,6 +92,7 @@ export type SubjectKind =
   | 'platform'
   | 'custody'
   | 'clearing'
+  | 'exchange'
   | 'engagement-treasury'
   | 'user'
   | 'community'
@@ -202,6 +203,17 @@ export const CANONICAL_ACCOUNTS: readonly CanonicalAccount[] = Object.freeze([
   { subject: 'user', purpose: 'payout_due', type: 'liability', because: 'Proceeds owed to a seller are owed.' },
   { subject: 'user', purpose: 'escrow', type: 'liability', because: 'Escrowed value is still owed to somebody.' },
   {
+    subject: 'exchange',
+    purpose: 'escrow',
+    type: 'liability',
+    because:
+      'contracts/packages/money/src/index.ts, `EXCHANGE` — the order book\'s omnibus escrow, with ' +
+      'micro-trade\'s `exchange_accounts` rows as the sub-ledger that says whose it is. Owed onwards, ' +
+      'so `liability`; and it must NOT be overdraft-exempt, which is what rules out `clearing`. ' +
+      'ledger/src/reconcile.ts sums liabilities by TYPE with no subject filter, so a balance moving ' +
+      'from `user:<id>/available` into it leaves the reconciliation invariant where it was.',
+  },
+  {
     subject: 'community',
     purpose: 'treasury',
     type: 'liability',
@@ -255,6 +267,7 @@ const SINGLETON_KINDS: Readonly<Record<string, SubjectKind>> = Object.freeze({
   platform: 'platform',
   custody: 'custody',
   clearing: 'clearing',
+  exchange: 'exchange',
   'platform:engagement-treasury': 'engagement-treasury',
 })
 
@@ -287,6 +300,81 @@ export function subjectKindOf(text: string): SubjectKind {
   if (separator === -1) return '*'
   const prefix = PREFIX_KINDS[text.slice(0, separator)]
   return prefix ?? '*'
+}
+
+/**
+ * The two subject tables above, judged against the grammar that DECIDES them.
+ *
+ * `subjectKindOf` is a second copy of `parseAccountSubject`, and until micro-org#372 the only thing
+ * holding the copies together was six hand-written strings in a test — which cannot notice a
+ * subject contracts adds or retires. #372 was the first direction: `micro-trade` wrote
+ * `subject: 'exchange'`, no grammar anywhere had it, every posting would have died at the ledger's
+ * `ensureAccount`, and this sweep reported it only as a line it could not read. The other direction
+ * is worse: a kind here that contracts has retired would let the sweep BLESS a spelling the ledger
+ * now throws on.
+ *
+ * Source text, not an import: this repository deliberately does not depend on
+ * `@cloudsforge/contracts-money`, and it already reads the estate as text.
+ *
+ * `unreadable` is a distinct outcome from "no drift". A union this cannot parse must never look
+ * like agreement — that is the shape of every dead check this repository has shipped.
+ */
+export interface GrammarDrift {
+  /** Subjects contracts declares that `subjectKindOf` answers `*` for. */
+  readonly unknown: readonly string[]
+  /** Subject kinds this file classifies that contracts' union no longer declares. */
+  readonly retired: readonly string[]
+  /** The `AccountSubject` union could not be found in the source it was handed. */
+  readonly unreadable: boolean
+}
+
+const ACCOUNT_SUBJECT_UNION = /export type AccountSubject =\n((?:[^\S\n]*\|.*\n)+)/
+
+export function subjectGrammarDrift(moneySource: string): GrammarDrift {
+  const union = ACCOUNT_SUBJECT_UNION.exec(moneySource)?.[1]
+  if (union === undefined) return { unknown: [], retired: [], unreadable: true }
+
+  const prefixes = [...union.matchAll(/\|\s*`([a-z]+):\$\{string\}`/g)].map((m) => m[1] as string)
+  const singletons = [...union.matchAll(/\|\s*'([^']+)'/g)].map((m) => m[1] as string)
+  if (prefixes.length === 0 || singletons.length === 0) {
+    return { unknown: [], retired: [], unreadable: true }
+  }
+
+  const unknown = [
+    ...singletons.filter((subject) => subjectKindOf(subject) === '*'),
+    ...prefixes.filter((prefix) => subjectKindOf(`${prefix}:x`) === '*').map((prefix) => `${prefix}:<id>`),
+  ]
+  // Derived from the tables themselves in BOTH directions, deliberately: a hand-written list of
+  // "the subjects we know" would be a third copy, and the third copy is the one nobody updates.
+  const declared = new Set([...singletons, ...prefixes.map((prefix) => `${prefix}:x`)])
+  const retired = [
+    ...Object.keys(SINGLETON_KINDS).filter((subject) => !declared.has(subject)),
+    ...Object.keys(PREFIX_KINDS)
+      .filter((prefix) => !declared.has(`${prefix}:x`))
+      .map((prefix) => `${prefix}:<id>`),
+  ]
+  return { unknown, retired, unreadable: false }
+}
+
+/** The one line a report prints about the grammar, or null when the two agree. */
+export function formatGrammarDrift(drift: GrammarDrift): string | null {
+  if (drift.unreadable) {
+    return "contracts' AccountSubject union could not be read — the subject grammar is UNCHECKED, which is not the same as agreed"
+  }
+  const lines: string[] = []
+  if (drift.unknown.length > 0) {
+    lines.push(
+      `contracts declares subjects this sweep cannot classify: ${drift.unknown.join(', ')} — ` +
+        'every claim written against one is counted unreadable instead of judged',
+    )
+  }
+  if (drift.retired.length > 0) {
+    lines.push(
+      `this sweep classifies subjects contracts no longer declares: ${drift.retired.join(', ')} — ` +
+        'it would bless a spelling the ledger throws on',
+    )
+  }
+  return lines.length === 0 ? null : lines.join('\n')
 }
 
 /** The literal string an expression is, or null when it is not statically one. */
