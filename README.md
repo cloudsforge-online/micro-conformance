@@ -81,6 +81,36 @@ CONFORMANCE_URL_PAY=http://gateway.internal/pay \
 
 `conformance report --corpus corpus/` summarises a recording without re-running anything.
 
+### `CONFORMANCE_ACCOUNT` — needed against any estate that verifies email addresses
+
+`POST /auth/register` on micro identity answers **202 with no session**. The account is created and
+cannot sign in until the link identity mails is spent, which this harness cannot do: the token lives
+only in notify's copy of the verification event, and it is a live credential (micro-org#371).
+Measured against mainnet identity 2.5.19 on 2026-08-11:
+
+```
+POST /auth/register              202  {"verificationRequired":true, ...}
+POST /auth/login (that account)  403  {"error":{"code":"email_unverified", ...}}
+```
+
+So an authenticated recording against such a base needs an account somebody already created and
+confirmed:
+
+```bash
+CONFORMANCE_ACCOUNT='someone@example.test:the-password' \
+  node --import tsx src/cli.ts record --base micro --out corpus/
+```
+
+Split on the **first** colon, so a password may contain as many as it likes. Unset is supported and
+is what `--base local` is in — the legacy Nimbus still answers 201 with a session and none of this
+is reached. Unset against a 202 is a **skip naming this variable**, not a failure: the estate is
+working and the harness is not equipped.
+
+**The `identity` scenario will not rotate a provisioned account's password.** It changes the
+password and never changes it back, which is right for a throwaway it created seconds earlier and
+would lock you out of `CONFORMANCE_ACCOUNT` on the first run. It records a note instead, so the
+manifest says which half is missing rather than dropping the eight interactions above it.
+
 ### Scenarios
 
 | Scenario | Covers |
