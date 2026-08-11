@@ -155,6 +155,31 @@ export default defineScenario({
     }
 
     // ------------------------------------------------------- password change --
+    /*
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * **NOT AGAINST AN ACCOUNT SOMEBODY ELSE OWNS.**
+     *
+     * Everything below changes the password and never changes it back. That is harmless against a
+     * throwaway this scenario created eleven seconds ago and destructive against
+     * `CONFORMANCE_ACCOUNT`: the first run would rewrite the operator's password, the variable
+     * would still hold the old one, and every subsequent run of the whole harness would skip with
+     * "identity refuses to sign it in" — for a change this scenario made.
+     *
+     * A note rather than a skip, because the eight interactions above it are real and recorded, and
+     * a characterisation harness that discarded them to avoid the ninth would be worth less than
+     * one that says which one is missing. `ctx.note` exists for exactly this case.
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     */
+    if (account.provisioned) {
+      ctx.note(
+        'the password-rotation half was not recorded: this run signed in as CONFORMANCE_ACCOUNT ' +
+          'rather than registering, because POST /auth/register answers 202 with no session, and ' +
+          'rotating a provisioned account’s password would lock the harness out of it',
+      )
+      publishSharedAccount(ctx, account)
+      return
+    }
+
     const newPassword = `${account.password}-2`
 
     await ctx.call('a password change with the wrong current password is refused', {
