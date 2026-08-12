@@ -20,7 +20,7 @@
  * exists on every deployment, and no key anywhere can spend from it.
  */
 
-import { defineScenario } from '../scenario.ts'
+import { defineScenario, ScenarioSkip } from '../scenario.ts'
 
 /** The commons address. Reading it moves nothing and needs no funded account. */
 const COMMONS_ADDRESS = '0x0000000000000000000000000000000000000000'
@@ -83,15 +83,44 @@ export default defineScenario({
       body: rpc(5, 'eth_thisMethodDoesNotExist'),
     })
 
-    await ctx.call('the REST listener reports the chain', {
-      target: 'hearth-rest',
-      path: '/info',
-      // The genesis hash identifies the chain and must stay comparable; the tip beside it is
-      // normalised by the field-name rule instead. A replacement pointed at a different chain has
-      // a different genesis, and that is exactly the difference this corpus exists to surface.
-      exclude: ['hash-32'],
-    })
-
-    await ctx.call('emission accounting reads back', { target: 'hearth-rest', path: '/supply' })
+    /*
+     * ─────────────────────────────────────────────────────────────────────────────────────────
+     * THE REST HALF NOTES ITS ABSENCE RATHER THAN TAKING THE SUITE DOWN WITH IT.
+     *
+     * Same reasoning as `health`, and for once it applies to a two-target suite: this scenario
+     * covers two listeners of one process, and `ctx.call` turns an unmapped target into a skip of
+     * the WHOLE scenario. On the micro base — where `rpc.<apex>` carries only /mining/template,
+     * /mining/submit and /events to the REST port, so /info and /supply have no public address —
+     * that discarded five good JSON-RPC observations to report the sixth call's absence, and the
+     * comparator then read the suite as `scenario-no-longer-records`: "it stopped looking".
+     *
+     * It did not stop looking. It looked at the listener that carries money — the deposit watcher
+     * speaks `eth_*` to it — and could not reach the one that carries emission figures. The two
+     * missing interactions are still reported as missing by the comparator, which is breaking and
+     * should be; what is not thrown away is everything the suite did see.
+     * ─────────────────────────────────────────────────────────────────────────────────────────
+     */
+    const unreachable: string[] = []
+    for (const rest of [
+      {
+        step: 'the REST listener reports the chain',
+        path: '/info',
+        // The genesis hash identifies the chain and must stay comparable; the tip beside it is
+        // normalised by the field-name rule instead. A replacement pointed at a different chain
+        // has a different genesis, and that is exactly the difference this corpus surfaces.
+        exclude: ['hash-32'],
+      },
+      { step: 'emission accounting reads back', path: '/supply', exclude: [] as string[] },
+    ]) {
+      try {
+        await ctx.call(rest.step, { target: 'hearth-rest', path: rest.path, exclude: rest.exclude })
+      } catch (err) {
+        if (!(err instanceof ScenarioSkip)) throw err
+        unreachable.push(rest.path)
+      }
+    }
+    if (unreachable.length) {
+      ctx.note(`the REST listener was not reachable at this base: ${unreachable.join(', ')}`)
+    }
   },
 })
