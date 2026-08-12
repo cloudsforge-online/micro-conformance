@@ -270,6 +270,9 @@ async function signInAsConfigured(
   }
 }
 
+/** The step under which a configured account's sign-in is recorded, in both callers. */
+const SIGN_IN_STEP = 'sign in as the configured verified account'
+
 /**
  * Register a throwaway account, and come back holding a session however this base issues one.
  *
@@ -279,6 +282,34 @@ async function signInAsConfigured(
  *
  * The registration itself is recorded whichever way it goes — a 202 is exactly as much a fact about
  * the estate as a 201 was, and this tool exists to write down facts about the estate.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * **A CHALLENGED REGISTRATION FALLS BACK TO `CONFORMANCE_ACCOUNT`, EXACTLY AS A 202 DOES.**
+ *
+ * `CONFORMANCE_ACCOUNT` used to be reachable only down the 202 branch — the estate saying "created,
+ * now go and confirm the address". Turnstile (micro-org#361) changed which refusal comes first:
+ * `POST /auth/register` answers **403 `challenge_required`** to this harness, and the 403 skip
+ * fired above the 202 branch. So a run that had been handed a verified account, and could have
+ * signed in with it, skipped every authenticated scenario instead. That is how `conformance_runs`
+ * stayed empty and `ConformanceCorpusNeverReplayed` was firing on 2026-08-12, with six of eight
+ * suites reporting the challenge as their reason.
+ *
+ * The two refusals differ in wording and not in consequence: **this run is not getting a session
+ * out of `/auth/register`.** Which of them the estate happens to raise first is a fact about the
+ * estate's front door, not about whether this harness has an account it can use. Registration was
+ * never the point — it was one way to obtain a session, and declining to use the other way because
+ * the first was refused is the tool refusing to characterise an estate it can perfectly well
+ * characterise.
+ *
+ * **The refused registration is still recorded, and that is deliberate.** A 403 from the gate is a
+ * real, stable observation about the estate — it is how the corpus says the front door is guarded
+ * — and it costs nothing, because the request creates no account. Short-circuiting past it when an
+ * account is configured would have been simpler and would have thrown that observation away.
+ *
+ * **The skip is unchanged for the unconfigured case, and that is the case it was written for.**
+ * With no account to fall back to there genuinely is no session to be had, and the message saying
+ * so — the estate is not broken, this tool is not allowed through it — is still the right one.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
  */
 export async function registerThrowaway(
   ctx: ScenarioContext,
@@ -300,10 +331,17 @@ export async function registerThrowaway(
     ctx.skip('Nimbus is rate-limiting registration (5/min per IP) — another harness got there first')
   }
   const refusal = challengeRefusal(res.status, res.body)
+  // A configured account outranks the skip: the gate refused the REGISTRATION, and a session is
+  // still obtainable without one. See the block above this function for why this ordering was the
+  // whole reason the micro corpus had never once replayed.
+  if (refusal !== null && configuredAccount() !== null) return signInAsConfigured(ctx, SIGN_IN_STEP, true)
   if (refusal !== null) ctx.skip(`${CHALLENGE_SKIP} (${refusal})`)
 
   if (res.status === VERIFICATION_REQUIRED) {
-    return signInAsConfigured(ctx, 'sign in as the configured verified account', true)
+    // `signInAsConfigured` skips with `NO_ACCOUNT_SKIP` when nothing is configured, which names
+    // the variable to set. A bare `require` here would say "202 without a session" and send the
+    // reader to identity for something identity did correctly.
+    return signInAsConfigured(ctx, SIGN_IN_STEP, true)
   }
 
   const session = sessionIn(res.body)
@@ -370,13 +408,16 @@ export async function sharedThrowaway(ctx: ScenarioContext): Promise<ThrowawayAc
     ctx.skip('Nimbus is rate-limiting registration (5/min per IP) — another harness got there first')
   }
   const refusal = challengeRefusal(res.status, res.body)
-  if (refusal !== null) ctx.skip(`${CHALLENGE_SKIP} (${refusal})`)
+  // The same ordering as `registerThrowaway`, and this is the call site where it mattered most:
+  // five scenarios come through here, so the challenge skip took five of the eight suites down in
+  // the 2026-08-12 run on its own.
+  if (refusal !== null && configuredAccount() === null) ctx.skip(`${CHALLENGE_SKIP} (${refusal})`)
 
-  if (res.status === VERIFICATION_REQUIRED) {
+  if (refusal !== null || res.status === VERIFICATION_REQUIRED) {
     // `record: false`, matching the registration above it: this is the harness getting into
     // position for the scenario that asked, not an observation. `registerThrowaway` records its
     // sign-in because that call IS its subject; this one is not.
-    const configured = await signInAsConfigured(ctx, 'sign in as the configured verified account', false)
+    const configured = await signInAsConfigured(ctx, SIGN_IN_STEP, false)
     ctx.shared.set(SHARED_KEY, configured)
     return configured
   }

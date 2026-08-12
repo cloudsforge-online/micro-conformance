@@ -312,6 +312,83 @@ describe('a registration that issues no session', () => {
     })
   })
 
+  /**
+   * THE ORDERING THAT KEPT THE WHOLE CORPUS FROM EVER REPLAYING.
+   *
+   * `CONFORMANCE_ACCOUNT` was reachable only down the 202 branch. Turnstile changed which refusal
+   * comes first — 403 `challenge_required`, above the 202 — and the skip fired there, so a run
+   * holding a perfectly good verified account skipped every authenticated scenario anyway. The
+   * first real replay of the micro corpus, 2026-08-12, had six of eight suites reporting the
+   * challenge as their reason and `beacon_conformance_suites` had never left zero.
+   *
+   * The two refusals differ in wording, not in consequence: this run is not getting a session out
+   * of `/auth/register` either way.
+   */
+  it('SIGNS IN as the configured account when the CHALLENGE is what refused the registration', async () => {
+    answer = refusal('challenge_required')
+    await withAccount(CONFIGURED, async () => {
+      const { outcome, reason } = await outcomeOf((ctx) => registerThrowaway(ctx))
+      assert.equal(outcome, 'recorded', reason)
+      assert.equal(logins.length, 1, 'the challenge skip fired above the configured account again')
+      assert.equal(logins[0]?.['identifier'], 'someone@cloudsforge.example')
+    })
+  })
+
+  it('does the same for the SHARED account, which five scenarios come through', async () => {
+    answer = refusal('challenge_required')
+    await withAccount(CONFIGURED, async () => {
+      const { outcome, reason } = await outcomeOf((ctx) => sharedThrowaway(ctx))
+      assert.equal(outcome, 'recorded', reason)
+      assert.equal(logins.length, 1)
+    })
+  })
+
+  it('still RECORDS the refused registration, so the corpus keeps saying the door is guarded', async () => {
+    // Kills "short-circuit past the registration when an account is configured", which is simpler
+    // and throws away a real, stable observation: the request creates no account, and the 403 is
+    // how this corpus characterises the gate. Both interactions must be in the recording.
+    answer = refusal('challenge_required')
+    await withAccount(CONFIGURED, async () => {
+      const steps: string[] = []
+      const result = await runScenario(
+        defineScenario({
+          name: 'stub',
+          title: 't',
+          description: 'd',
+          targets: ['nimbus'],
+          async run(ctx) {
+            await registerThrowaway(ctx)
+          },
+        }),
+        { ...deps(), onInteraction: (i: Interaction) => void steps.push(i.step) },
+      )
+      assert.equal(result.report.outcome, 'recorded', result.report.reason ?? '')
+      assert.deepEqual(steps, ['register a throwaway account', 'sign in as the configured verified account'])
+    })
+  })
+
+  it('a NON-challenge 403 does not reach for the account — it is a different finding', async () => {
+    // `forbidden` means registration is closed, not gated. Falling back there would quietly turn
+    // "the estate stopped accepting registrations" into a green run.
+    answer = { status: 403, body: { error: { code: 'forbidden', message: 'registration is closed' } } }
+    await withAccount(CONFIGURED, async () => {
+      const { outcome, reason } = await outcomeOf((ctx) => registerThrowaway(ctx))
+      assert.equal(outcome, 'skipped')
+      assert.match(reason, /answered 403/)
+      assert.equal(logins.length, 0, 'a closed registration was papered over with the configured account')
+    })
+  })
+
+  it('a 503 does not reach for the account either — failing closed is an outage', async () => {
+    answer = { status: 503, body: { error: { code: 'challenge_unavailable', message: 'unreachable' } } }
+    await withAccount(CONFIGURED, async () => {
+      const { outcome, reason } = await outcomeOf((ctx) => registerThrowaway(ctx))
+      assert.equal(outcome, 'skipped')
+      assert.match(reason, /answered 503/)
+      assert.equal(logins.length, 0)
+    })
+  })
+
   it('a 202 that DOES carry a session is still not used as one', async () => {
     // Belt and braces on the estate's own rule. If identity ever answered 202 with a token in the
     // body it would be signing in an address nobody has proved control of — the defect the 202 was

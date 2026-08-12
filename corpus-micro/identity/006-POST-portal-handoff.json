@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "scenario": "identity",
   "step": "request a handoff code",
-  "seq": 3,
+  "seq": 6,
   "target": "nimbus",
   "request": {
     "method": "POST",
@@ -11,7 +11,7 @@
       "authorization": "<redacted>"
     },
     "body": {
-      "returnUrl": "http://localhost:3000/"
+      "returnUrl": "http://localhost:4006/"
     }
   },
   "response": {
@@ -29,5 +29,5 @@
       }
     }
   },
-  "timing": "instant"
+  "timing": "fast"
 }

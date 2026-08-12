@@ -20,8 +20,8 @@
       "content-type": "application/json; charset=utf-8"
     },
     "body": {
-      "subject": "user:019fcc88-adbd-7000-9c75-efbd820d671d",
-      "network": "testnet",
+      "subject": "user:019ff124-ba75-7000-9aa5-0f2c7cf34cd2",
+      "network": "mainnet",
       "balances": [],
       "wallets": [],
       "nextCursor": null,
@@ -29,5 +29,5 @@
       "asOf": "<timestamp>"
     }
   },
-  "timing": "instant"
+  "timing": "fast"
 }

@@ -20,8 +20,24 @@
       "content-type": "application/json; charset=utf-8"
     },
     "body": {
-      "assignments": []
+      "assignments": [
+        {
+          "id": "<uuid>",
+          "userId": "<uuid>",
+          "assetCode": "EMBER",
+          "chain": "ember",
+          "network": "mainnet",
+          "walletId": "<uuid>",
+          "address": "<evm-address>",
+          "custodyKeyUrn": "<custody-key-urn>",
+          "status": "active",
+          "assignedAt": "<timestamp>",
+          "rotatedAt": null,
+          "supersedesId": null,
+          "watchedAt": "<timestamp>"
+        }
+      ]
     }
   },
-  "timing": "instant"
+  "timing": "fast"
 }

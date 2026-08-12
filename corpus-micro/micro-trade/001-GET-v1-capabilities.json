@@ -22,6 +22,36 @@
         "liveTrading": {
           "enabled": false,
           "refusal": "live trading is switched off on this deployment — this bot is not trading"
+        },
+        "orderBook": {
+          "enabled": false,
+          "refusal": "the order book is switched off on this deployment — no orders are being accepted",
+          "orderTypes": [
+            "limit",
+            "market",
+            "stop_limit",
+            "stop_market"
+          ],
+          "timeInForce": [
+            "gtc",
+            "ioc",
+            "fok",
+            "gtd"
+          ],
+          "stpModes": [
+            "cancel_taker",
+            "cancel_maker",
+            "cancel_both",
+            "decrement_and_cancel"
+          ],
+          "candleIntervals": [
+            "1m",
+            "5m",
+            "15m",
+            "1h",
+            "4h",
+            "1d"
+          ]
         }
       }
     }

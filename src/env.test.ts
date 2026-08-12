@@ -79,20 +79,40 @@ describe('the base environments', () => {
     for (const target of TARGETS) {
       const entry = micro[target]
       if (isUnmapped(entry)) continue
-      // Hearth is the deliberate exception and is asserted as such below.
-      if (target === 'hearth-rest' || target === 'hearth-rpc') continue
       assert.notEqual(entry, local[target], `micro/${target} still points at the legacy estate`)
       assert.match(entry, /^https:\/\//, `micro/${target} must be reached through the gateway`)
     }
   })
 
-  it('reaches hearth directly, because it is the same node the legacy corpus recorded', () => {
+  /**
+   * THE SECOND HALF OF THAT REGRESSION, AND THE ONE THAT SURVIVED THE FIRST FIX.
+   *
+   * `hearth-rpc` and `hearth-rest` were left on 127.0.0.1 when the rest of the base moved to the
+   * gateway, under a comment saying the recorded node "is still running and still bound to these
+   * ports". The chain daemons then moved to their own host and nothing was listening. The first
+   * replay of the micro corpus against the live estate, 2026-08-12, spent the whole `chain` suite
+   * on `connect ECONNREFUSED 127.0.0.1:8545` — reported as breaking differences, which reads as
+   * the node having changed rather than the harness having dialled the wrong machine.
+   *
+   * The loop above no longer excepts them, so a loopback address in either row fails there too.
+   * This case is what says WHICH addresses are right, and it is deliberately exact: a relative
+   * assertion (`starts with https`) would have passed the whole time the ports were wrong.
+   */
+  it('reaches the chain node through the gateway, on the apex the base is configured for', () => {
     const micro = resolveBase('micro')
-    // Not an oversight and not laziness: 8545 is the JSON-RPC listener the deposit watcher speaks
-    // to and it is plain HTTP by design. It is also why `chain` is the one suite whose micro and
-    // legacy recordings are directly comparable.
-    assert.equal(micro['hearth-rpc'], 'http://127.0.0.1:8545')
-    assert.equal(micro['hearth-rest'], 'http://127.0.0.1:8645')
+    // The apex comes from `CONFORMANCE_MICRO_APEX`, read once at import — so this asserts the
+    // default rather than setting the variable here, which would be read too late to matter.
+    // Against the deployed estate the same row resolves to `https://rpc.cloudsforge.online`,
+    // which is where the 2026-08-12 probe found JSON-RPC answering (`eth_chainId` → `0x1cf3`).
+    assert.equal(micro['hearth-rpc'], 'https://rpc.cloudsforge.localtest.me')
+
+    // Unmapped, and not because the node is gone. `rpc.<apex>` carries only /mining/template,
+    // /mining/submit and /events to the REST port; every other path on that host reaches the
+    // JSON-RPC listener, so the `/info` and `/supply` this suite asks for answer 405. Recording
+    // those would characterise the gateway's routing table, not the node.
+    const rest = micro['hearth-rest']
+    if (!isUnmapped(rest)) assert.fail('micro/hearth-rest has no public address on this estate')
+    assert.match(rest.reason, /mining\/template/)
   })
 
   it('an override outranks an unmapped row, so a restored surface needs no edit here', () => {

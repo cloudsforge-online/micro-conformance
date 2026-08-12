@@ -389,6 +389,21 @@ export function compareCorpora(
 
   const targetByKey = new Map(keyed(target).map((k) => [k.key, k.interaction]))
   let compared = 0
+  /**
+   * Interactions that were compared and produced no difference at all.
+   *
+   * Counted HERE, per interaction, rather than derived afterwards from the difference list. The
+   * derived version was `compared - <distinct scenario/step among all differences>`, and it went
+   * NEGATIVE on the first real run against the live estate on 2026-08-12: `-34 identical` out of
+   * 16 compared. `interaction-missing` and `interaction-added` differences carry a step too, and
+   * they are precisely the interactions that were NOT compared — so the estate having drifted far
+   * enough for 50 of them subtracted 50 from a total of 16.
+   *
+   * A negative count in a headline is not a cosmetic defect. This line is what an operator reads
+   * to decide whether a run means anything, and "-34 identical" reads as the tool being broken at
+   * exactly the moment it is telling the truth about the estate.
+   */
+  let identical = 0
 
   for (const { key, interaction: before } of keyed(baseline)) {
     const after = targetByKey.get(key)
@@ -405,7 +420,9 @@ export function compareCorpora(
       continue
     }
     compared++
-    differences.push(...compareInteraction(before, after))
+    const found = compareInteraction(before, after)
+    if (found.length === 0) identical++
+    differences.push(...found)
   }
 
   const baselineKeys = new Set(keyed(baseline).map((k) => k.key))
@@ -429,8 +446,9 @@ export function compareCorpora(
     byKind[d.kind] = (byKind[d.kind] ?? 0) + 1
   }
   // Everything compared and not reported is identical. Counting it makes the headline honest:
-  // "3 benign" means nothing without the number it is out of.
-  counts.identical = compared - new Set(differences.filter((d) => d.step).map((d) => `${d.scenario}/${d.step}`)).size
+  // "3 benign" means nothing without the number it is out of. It is bounded by `compared` by
+  // construction now — see the declaration.
+  counts.identical = identical
 
   return {
     differences,

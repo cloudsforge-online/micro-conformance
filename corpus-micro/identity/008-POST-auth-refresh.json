@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "scenario": "identity",
-  "step": "the reused token revoked its whole family",
+  "step": "a burnt refresh token is refused",
   "seq": 8,
   "target": "nimbus",
   "request": {
@@ -25,5 +25,5 @@
       "expiresIn": "<number>"
     }
   },
-  "timing": "instant"
+  "timing": "fast"
 }

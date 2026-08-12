@@ -27,7 +27,7 @@
         "userId": "<uuid>",
         "assetCode": "EMBER",
         "chain": "ember",
-        "network": "testnet",
+        "network": "mainnet",
         "walletId": "<uuid>",
         "address": "<evm-address>",
         "custodyKeyUrn": "<custody-key-urn>",

@@ -18,6 +18,7 @@
   "response": {
     "status": 200,
     "headers": {
+      "access-control-allow-credentials": "true",
       "access-control-allow-origin": "*",
       "content-type": "application/json"
     },
@@ -30,5 +31,5 @@
       }
     }
   },
-  "timing": "instant"
+  "timing": "fast"
 }

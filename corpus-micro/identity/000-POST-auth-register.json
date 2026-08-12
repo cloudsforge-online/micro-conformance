@@ -15,35 +15,17 @@
     }
   },
   "response": {
-    "status": 201,
+    "status": 403,
     "headers": {
       "access-control-allow-credentials": "true",
       "cache-control": "no-store",
       "content-type": "application/json; charset=utf-8"
     },
     "body": {
-      "accessToken": "<redacted>",
-      "refreshToken": "<redacted>",
-      "expiresIn": "<number>",
-      "user": {
-        "id": "<uuid>",
-        "email": "<email>",
-        "emailVerifiedAt": null,
-        "handle": "<handle>",
-        "status": "active",
-        "roles": [
-          "player"
-        ],
-        "createdAt": "<timestamp>",
-        "lastSeenAt": null
-      },
-      "organisation": {
-        "id": "<uuid>",
-        "slug": "cf-4cb1106ee46444",
-        "name": "cf_4cb1106ee46444",
-        "kind": "personal",
-        "status": "active",
-        "createdAt": "<timestamp>"
+      "error": {
+        "code": "challenge_required",
+        "message": "that registration did not carry a completed challenge",
+        "requestId": "<request-id>"
       }
     }
   },

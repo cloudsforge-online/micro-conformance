@@ -23,5 +23,5 @@
       "backtests": []
     }
   },
-  "timing": "instant"
+  "timing": "fast"
 }

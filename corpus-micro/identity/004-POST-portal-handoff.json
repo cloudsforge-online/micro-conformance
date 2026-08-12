@@ -11,7 +11,7 @@
       "authorization": "<redacted>"
     },
     "body": {
-      "returnUrl": "http://localhost:3001/"
+      "returnUrl": "http://localhost:3000/"
     }
   },
   "response": {
@@ -29,5 +29,5 @@
       }
     }
   },
-  "timing": "instant"
+  "timing": "fast"
 }

@@ -373,4 +373,52 @@ describe('the comparator over a whole corpus', () => {
     assert.equal(report.counts.identical, 2)
     assert.equal(report.breaking, false)
   })
+
+  /**
+   * THE HEADLINE THAT WENT NEGATIVE. `identical` was derived — `compared` minus the number of
+   * distinct `scenario/step` pairs among ALL differences — and `interaction-missing` and
+   * `interaction-added` carry a step like every other difference. Those two kinds are precisely
+   * the interactions that were NOT compared, so an estate that had drifted far enough subtracted
+   * more than it ever added: the first live replay, 2026-08-12, printed `16 interactions
+   * compared · -34 identical`.
+   *
+   * That is not a cosmetic defect. It is the line an operator reads to decide whether a run means
+   * anything, and a negative count reads as the tool being broken at the exact moment it is
+   * telling the truth about the estate.
+   */
+  it('counts only what it compared, so absent and added interactions cannot drive it negative', () => {
+    const shared = interaction({ scenario: 'health', step: 'nimbus reports healthy', seq: 0 })
+    const baseline = [
+      shared,
+      interaction({ scenario: 'health', step: 'pay reports healthy', seq: 1 }),
+      interaction({ scenario: 'health', step: 'game reports healthy', seq: 2 }),
+      interaction({ scenario: 'health', step: 'mint reports healthy', seq: 3 }),
+    ]
+    // One interaction in common, three of the baseline's gone, and one the replay invented.
+    const target = [shared, interaction({ scenario: 'health', step: 'vault reports healthy', seq: 1 })]
+
+    const report = compareCorpora(baseline, target)
+    assert.equal(report.interactionsCompared, 1)
+    assert.equal(report.counts.identical, 1, 'the one interaction that was compared and matched')
+    assert.ok(report.counts.identical >= 0, 'a count of things observed can never be negative')
+    assert.ok(
+      report.counts.identical <= report.interactionsCompared,
+      'nothing can be identical that was never compared',
+    )
+  })
+
+  it('separates identical from compared-but-differing, so a benign count has a denominator', () => {
+    const baseline = [
+      interaction({ step: 'read the wallet', seq: 0 }),
+      interaction({ step: 'read the price board', seq: 1 }),
+    ]
+    // The second one got slower. Benign, compared, and not identical.
+    const target = [baseline[0]!, { ...baseline[1]!, timing: 'slow' as const }]
+
+    const report = compareCorpora(baseline, target)
+    assert.equal(report.interactionsCompared, 2)
+    assert.equal(report.counts.identical, 1)
+    assert.equal(report.counts.benign, 1)
+    assert.equal(report.counts.breaking, 0)
+  })
 })

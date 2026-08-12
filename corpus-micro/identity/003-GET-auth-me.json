@@ -1,19 +1,14 @@
 {
   "formatVersion": 1,
   "scenario": "identity",
-  "step": "a password change with the wrong current password is refused",
-  "seq": 9,
+  "step": "an unauthenticated read is refused",
+  "seq": 3,
   "target": "nimbus",
   "request": {
-    "method": "POST",
-    "path": "/auth/password",
-    "headers": {
-      "authorization": "<redacted>"
-    },
-    "body": {
-      "currentPassword": "<redacted>",
-      "newPassword": "<redacted>"
-    }
+    "method": "GET",
+    "path": "/auth/me",
+    "headers": {},
+    "body": null
   },
   "response": {
     "status": 401,
@@ -24,8 +19,8 @@
     },
     "body": {
       "error": {
-        "code": "bad_password",
-        "message": "that is not your current password",
+        "code": "unauthenticated",
+        "message": "no bearer token presented",
         "requestId": "<request-id>"
       }
     }

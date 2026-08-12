@@ -18,14 +18,15 @@
   "response": {
     "status": 200,
     "headers": {
+      "access-control-allow-credentials": "true",
       "access-control-allow-origin": "*",
       "content-type": "application/json"
     },
     "body": {
       "jsonrpc": "2.0",
       "id": 2,
-      "result": "7412"
+      "result": "7411"
     }
   },
-  "timing": "instant"
+  "timing": "fast"
 }
