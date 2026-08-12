@@ -10,11 +10,14 @@
  *
  * **`eth_chainId` is the one value in this whole corpus that is normalised out of the way of
  * itself.** It is a hex quantity like every block height, and the `hex-quantity` rule would erase
- * it, so this scenario switches that rule off by name for that one call. The value must read
- * `0x1cf4` — 7412 — on this testnet: `params.js` refuses to start on an unknown network but takes
- * an explicitly set `HEARTH_CHAIN_ID` at its word, so a wrong-but-valid id misroutes nothing and
- * stays invisible, while removing the only thing EIP-155 gives us. At 7411 every hearth-testnet
- * transaction becomes replayable on hearth mainnet and back.
+ * it, so this scenario switches that rule off by name for that one call. It must read `0x1cf4` —
+ * 7412 — against hearth-testnet and `0x1cf3` — 7411 — against hearth mainnet, which is what the
+ * `micro` corpus now holds: `params.js` refuses to start on an unknown network but takes an
+ * explicitly set `HEARTH_CHAIN_ID` at its word, so a wrong-but-valid id misroutes nothing and stays
+ * invisible while removing the only thing EIP-155 gives us. Swap those two and every hearth-testnet
+ * transaction becomes replayable on hearth mainnet and back. The step is still labelled "the
+ * testnet chain id" because renaming a step abandons its history in the corpus; the value beneath
+ * it is per-base and the comparator is what enforces it.
  *
  * `eth_getBalance` is asked about the zero address, deliberately: it is the commons address, it
  * exists on every deployment, and no key anywhere can spend from it.
