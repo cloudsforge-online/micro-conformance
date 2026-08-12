@@ -219,15 +219,32 @@ const BASES: Readonly<Record<string, BaseUrls>> = {
     lantern: gateway('lantern'),
     beacon: gateway('beacon'),
 
-    // ── MAPPED, AND UNCHANGED BY THE MIGRATION ───────────────────────────────────────────────
+    // ── THE CHAIN NODE, WHICH IS NO LONGER ON THIS MACHINE ───────────────────────────────────
     //
-    // The same hearth-testnet node the 2026-07-29 corpus was recorded against is still running and
-    // still bound to these ports (`hearth-testnet-seed`, verified in `docker ps`). It is not behind
-    // the gateway and must not be: 8545 is the JSON-RPC listener the deposit watcher speaks to,
-    // and it is plain HTTP by design. This is the ONE scenario whose micro recording is directly
-    // comparable with the legacy one, because it is the same process.
-    'hearth-rest': 'http://127.0.0.1:8645',
-    'hearth-rpc': 'http://127.0.0.1:8545',
+    // These two rows used to be `http://127.0.0.1:8645` and `http://127.0.0.1:8545`, under a
+    // comment claiming the node the 2026-07-29 corpus was recorded against "is still running and
+    // still bound to these ports". That stopped being true when the chain daemons moved off the
+    // app host: the seed node runs on the chain host now and nothing listens on either loopback
+    // port. The first real replay of this corpus against the live estate, on 2026-08-12, spent
+    // the entire `chain` suite on `connect ECONNREFUSED 127.0.0.1:8545` — a whole suite of
+    // breaking differences that said nothing about the estate and everything about this file.
+    //
+    // A localhost default in a base named after a DEPLOYED apex is the trap. `MICRO_APEX` is
+    // overridable precisely because this base has to work from somewhere else; a hard-coded
+    // 127.0.0.1 quietly opts two targets out of that and fails as if the estate were down.
+    //
+    // Measured 2026-08-12 against `rpc.cloudsforge.online`: `POST /` answers JSON-RPC
+    // (`eth_chainId` → `0x1cf3`), and `/info`, `/supply` and `/health` all answer 405. The
+    // gateway routes `Host(rpc.<apex>)` WHOLE to the JSON-RPC listener and carves out only
+    // `/mining/template`, `/mining/submit` and `/events` to the REST port — deliberately, because
+    // that port also serves the legacy mining API and publishing it whole would publish that too.
+    'hearth-rpc': gateway('rpc'),
+    'hearth-rest': unmapped(
+      'the REST port is not published whole. `rpc.<apex>` carries only /mining/template, ' +
+        '/mining/submit and /events to it; every other path on that host reaches the JSON-RPC ' +
+        'listener, so /info and /supply — the two this suite asks for — have no public address ' +
+        'on this estate. Recording their 405s would characterise the gateway, not the node',
+    ),
 
     /* ══════════════════════════════════════════════════════════════════════════════════════════
      * THE SUCCESSORS — the five capabilities the legacy suites can no longer reach, at the

@@ -106,6 +106,19 @@ is what `--base local` is in — the legacy Nimbus still answers 201 with a sess
 is reached. Unset against a 202 is a **skip naming this variable**, not a failure: the estate is
 working and the harness is not equipped.
 
+It is also what the harness falls back to when the Turnstile in front of `POST /auth/register`
+answers **403 `challenge_required`** (micro-org#361). That refusal used to skip the run outright,
+above the 202 branch this variable was reachable from — so a run holding a perfectly good verified
+account skipped every authenticated scenario anyway, and the micro corpus had never once replayed.
+The two refusals differ in wording and not in consequence: no session is coming out of
+`/auth/register` either way. The refused registration is still recorded, because a guarded front
+door is a real fact about the estate and the request creates no account.
+
+A 403 that is **not** the gate (`forbidden` — registration closed) and a 503
+(`challenge_unavailable` — identity cannot reach Cloudflare, so nobody in the world can register)
+do **not** fall back. Papering over either with a configured account would turn an estate-wide
+refusal into a green run.
+
 **The `identity` scenario will not rotate a provisioned account's password.** It changes the
 password and never changes it back, which is right for a throwaway it created seconds earlier and
 would lock you out of `CONFORMANCE_ACCOUNT` on the first run. It records a note instead, so the
@@ -122,7 +135,7 @@ manifest says which half is missing rather than dropping the eight interactions 
 | `mint` | `/chains`, `/offers`, `/capabilities`, order list |
 | `trade` | The whole static `/catalog`, plus the per-account read surface |
 | `game` | `/worlds`, world detail, roster, `/cosmetics` |
-| `chain` | `eth_chainId`, `net_version`, `eth_blockNumber`, `eth_getBalance` on 8545; REST `/info` and `/supply` on 8645 |
+| `chain` | `eth_chainId`, `net_version`, `eth_blockNumber`, `eth_getBalance` on the JSON-RPC listener; REST `/info` and `/supply`, which only `--base local` can reach |
 
 The five rows above them — `wallet`, `entitlements`, `mint`, `trade`, `game` — characterise the
 **legacy** estate. Against `--base micro` they skip and are then **withheld from the publish as
