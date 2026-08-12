@@ -18,8 +18,9 @@
       "content-type": "application/json; charset=utf-8"
     },
     "body": {
-      "priceShards": "2500",
-      "network": "testnet",
+      "priceUsdCents": "2500",
+      "settlementAsset": "EMBER",
+      "network": "mainnet",
       "variants": [
         {
           "variant": "fixed",
@@ -49,5 +50,5 @@
       ]
     }
   },
-  "timing": "instant"
+  "timing": "fast"
 }

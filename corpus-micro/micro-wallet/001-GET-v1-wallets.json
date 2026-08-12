@@ -20,9 +20,26 @@
       "content-type": "application/json; charset=utf-8"
     },
     "body": {
-      "wallets": [],
+      "wallets": [
+        {
+          "id": "<uuid>",
+          "userId": "<uuid>",
+          "origin": "managed",
+          "chain": "ember",
+          "network": "mainnet",
+          "address": "<evm-address>",
+          "label": "EMBER deposit",
+          "isPrimary": false,
+          "status": "active",
+          "custodyKeyUrn": "<custody-key-urn>",
+          "createdAt": "<timestamp>",
+          "verifiedAt": null,
+          "exportedAt": null,
+          "retiredAt": null
+        }
+      ],
       "nextCursor": null
     }
   },
-  "timing": "instant"
+  "timing": "fast"
 }

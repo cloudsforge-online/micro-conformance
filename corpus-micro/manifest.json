@@ -1,22 +1,22 @@
 {
   "formatVersion": 1,
   "base": "micro",
-  "recordedAt": "2026-08-04T11:28:58.485Z",
+  "recordedAt": "2026-08-12T05:45:46.612Z",
   "scenarios": [
     {
       "name": "health",
       "title": "Every service answers its health route, in the shape it answers it today",
       "outcome": "recorded",
-      "reason": "did not answer: game/health, pay/health, mint/health, crucible/health",
-      "interactions": 6,
+      "reason": "did not answer: game/health, pay/health, mint/health, crucible/health, hearth-rest/info",
+      "interactions": 5,
       "cleanupErrors": []
     },
     {
       "name": "identity",
       "title": "An account is created, recognised, handed between products, rotated and re-secured",
       "outcome": "recorded",
-      "reason": "Nimbus refused every candidate return URL, so the SSO exchange was not recorded",
-      "interactions": 13,
+      "reason": "Nimbus refused every candidate return URL, so the SSO exchange was not recorded; the password-rotation half was not recorded: this run signed in as CONFORMANCE_ACCOUNT rather than registering, because POST /auth/register answers 202 with no session, and rotating a provisioned account’s password would lock the harness out of it",
+      "interactions": 10,
       "cleanupErrors": []
     },
     {
@@ -63,7 +63,8 @@
       "name": "chain",
       "title": "The node answers on both listeners, on the expected chain, at a height that is a number",
       "outcome": "recorded",
-      "interactions": 7,
+      "reason": "the REST listener was not reachable at this base: /info, /supply",
+      "interactions": 5,
       "cleanupErrors": []
     },
     {
@@ -103,7 +104,7 @@
     }
   ],
   "totals": {
-    "interactions": 53,
+    "interactions": 47,
     "recorded": 8,
     "skipped": 5,
     "failed": 0
