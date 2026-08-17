@@ -74,11 +74,13 @@
  *   * **Values this analyser cannot follow.** Anything reaching a response body through a function
  *     it cannot resolve — an injected dependency, a package import, a local nothing binds — is
  *     recorded as an OPAQUE reach: named, classified by WHY, printed, and never silently dropped.
- *     `BASELINE_BLIND_ROUTES` is the ratchet on the part of that which matters: today 37 of the 113
- *     routes in the four services that hold key material have a response this cannot fully account
+ *     `BASELINE_BLIND_ROUTES` is the ratchet on the part of that which matters: today 38 of the 119
+ *     routes in the six services that hold key material have a response this cannot fully account
  *     for, and every one is printed by name on every run. `BASELINE_BLIND_TO_EVERY_CHECK` is the
- *     second, stricter ratchet beneath it — of those 37, the 31 that no dynamic body scan in their
- *     own service drives either. Read both constants: they are two numbers on purpose.
+ *     second, stricter ratchet beneath it — of those 38, the 32 that no dynamic body scan in their
+ *     own service drives either. Read both constants: they are two numbers on purpose. Both figures
+ *     here are what a run prints; they are restated in each constant's own block, which is where
+ *     the reason a number last moved is recorded.
  *   * **One level of field sensitivity, and no more.** `a.b.c` is followed as "the `c` of the `b`"
  *     for one hop at a time, and `MAX_DEPTH` is 14. A body assembled through fifteen layers is a
  *     `depth-limit` reach — counted, and a defect in this analyser rather than in the estate.
@@ -1612,8 +1614,27 @@ export function readDynamicCoverage(
  *
  * The honest thing custody's work earned is a DIFFERENT number, below. The two are printed together
  * so the relationship is visible rather than argued.
+ *
+ * ────────────────────────────────────────────────────────────────────────────────────────────────
+ * 37 → 38 ON 2026-08-17, AND EXACTLY ONE ROUTE IS RESPONSIBLE.
+ *
+ * micro-notify `ae2485f` (2026-08-12) added `POST /admin/deliveries/:id/resend`, so an operator can
+ * answer "we sent it, did it arrive, send it again" without a psql prompt. Its 202 body is
+ * `{ deliveryId: created }`, and `created` is `await deps.store.resendDelivery(id)` — a dep-call.
+ * There is no version of that route this analyser can open: notify is a store-backed service and
+ * the id it returns is a row the database made. The alternatives were to leave the estate's most
+ * expensive checker red indefinitely, or to pretend a route does not exist.
+ *
+ * That is why the count moved by ONE and both numbers moved together — the stricter one below rose
+ * for the same single route, because notify has no dynamic body scan at all. estate-ci had been red
+ * on this since 2026-08-12; five days in which nothing else this checker found could be seen,
+ * which is the real cost of leaving a ratchet standing on a number the estate has left behind.
+ *
+ * The compensating work is NOT this edit. It is micro-org#479: notify's ten blind routes, and
+ * identity's eighteen, are watched by nothing, and a dynamic body scan in each of those two
+ * services is what lowers the number below — the way custody's a633986 did, by measurement.
  */
-export const BASELINE_BLIND_ROUTES = 37
+export const BASELINE_BLIND_ROUTES = 38
 
 /**
  * Of the routes above, the ones NO check in the estate accounts for — static or dynamic.
@@ -1623,7 +1644,7 @@ export const BASELINE_BLIND_ROUTES = 37
  * watched by NOTHING: a body this cannot read, in a service with a private key to lose, in a service
  * whose own suite does not drive that route either.
  *
- * It is 31 today because custody's six are now driven by `custody/src/bodyscan.test.ts` — verified
+ * It is 32 today because custody's six are now driven by `custody/src/bodyscan.test.ts` — verified
  * by a real run, not by subtraction. It is the number custody's a633986 legitimately lowered, and
  * the reason it is a separate constant rather than a discount applied to the one above is written
  * out there.
@@ -1631,8 +1652,13 @@ export const BASELINE_BLIND_ROUTES = 37
  * It ratchets the same way and it is the stricter of the two: `identity` holds the key that signs
  * every token in the estate and has no dynamic body scan at all, so all 18 of its blind routes are
  * in here. That is the next thing worth doing, and this constant is where it will show up.
+ *
+ * 31 → 32 on 2026-08-17, for the same single route as the constant above — notify's
+ * `POST /admin/deliveries/:id/resend` — and it lands here as well as there precisely because notify
+ * drives none of its own routes. Ten of notify's routes and eighteen of identity's are in this
+ * number and watched by nothing; micro-org#479 is the work that takes them out of it.
  */
-export const BASELINE_BLIND_TO_EVERY_CHECK = 31
+export const BASELINE_BLIND_TO_EVERY_CHECK = 32
 
 function acknowledgementFor(route: RouteRef, field: string): Acknowledgement | undefined {
   return ACKNOWLEDGED.find(
