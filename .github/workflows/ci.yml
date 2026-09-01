@@ -29,7 +29,39 @@ jobs:
 
   hygiene:
     uses: cloudsforge-online/micro-org/.github/workflows/secret-hygiene.yml@main
-    with:
-      require-dockerignore: false
     permissions:
       contents: read
+
+  # ──────────────────────────────────────────────────────────────────────────────────────────────
+  # THE RUNNER IMAGE — micro-org#537.
+  #
+  # The replay used to be a stock `node:22-bookworm` with this repository BIND-MOUNTED into it from
+  # whichever host ran the estate. The Kubernetes migration left that behind — a compose service
+  # that is not rendered is simply not there — and the corpus went unreplayed for a fortnight while
+  # `ConformanceCorpusStale` fired on every suite. Publishing the harness as an image is what makes
+  # the replay a deployable like everything else in the estate.
+  #
+  # `kind: service` with NO `estate_token`: that input selects the sibling checkouts a Dockerfile's
+  # named build contexts need, and this repository has none — `dependencies` is empty and there is
+  # no `link:../runtime`. The contexts are cloned and never referenced, which the shared workflow
+  # says costs nothing; passing a read token for repositories the build does not open would be the
+  # wrong trade.
+  #
+  # `packages: write` IS GRANTED HERE and not asked for inside the shared workflow: a called
+  # workflow's token can only be maintained or reduced, never elevated, so a reusable workflow
+  # asking for a permission its caller withheld fails the whole run at STARTUP — measured on
+  # micro-org, run 30900277471.
+  # ──────────────────────────────────────────────────────────────────────────────────────────────
+  publish:
+    needs: [check, hygiene]
+    # A green push to main and nothing else. An image the estate schedules has to name something
+    # that passed, on the branch it will be deployed from.
+    if: >-
+      github.event_name == 'push' && (github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/heads/release/'))
+    uses: cloudsforge-online/micro-org/.github/workflows/publish-image.yml@main
+    with:
+      kind: service
+    permissions:
+      contents: read
+      packages: write

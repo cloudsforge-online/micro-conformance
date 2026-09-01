@@ -10,7 +10,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, describe, it } from 'node:test'
@@ -376,6 +376,74 @@ describe('the two generations of suite', () => {
     for (const scenario of ALL_SCENARIOS.filter((s) => isSuccessorSuite(s.name))) {
       assert.ok(scenario.description.length > 80, `${scenario.name} has no real description`)
       assert.ok(scenario.title.length > 20, `${scenario.name} has no real title`)
+    }
+  })
+})
+
+describe('a secrets DIRECTORY, which is how Kubernetes projects a Secret', () => {
+  // micro-org#537. The compose runner bind-mounted `tokens.env`; the cluster has no equivalent
+  // without writing the estate's whole secret file to disk a second time, and mounts the Secret as
+  // one file per key instead.
+  const withDir = <T>(files: Readonly<Record<string, string>>, fn: (dir: string) => T): T => {
+    const dir = mkdtempSync(join(tmpdir(), 'cf-secrets-'))
+    try {
+      for (const [name, value] of Object.entries(files)) writeFileSync(join(dir, name), value)
+      return fn(dir)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  it('reads one value per file, and applies the same eight-character floor a file gets', () => {
+    const secrets = withDir(
+      {
+        BEACON_TOKEN: 'a-token-long-enough-to-count\n',
+        SMTP_PORT: '587',
+        CF_CONFORMANCE_ACCOUNT: 'someone@example.test:a-password-long-enough',
+      },
+      (dir) => {
+        process.env.CONFORMANCE_SECRETS_FILE = dir
+        try {
+          return loadSecrets('micro')
+        } finally {
+          delete process.env.CONFORMANCE_SECRETS_FILE
+        }
+      },
+    )
+    assert.ok(secrets.literals.includes('a-token-long-enough-to-count'))
+    assert.ok(secrets.literals.includes('someone@example.test:a-password-long-enough'))
+    // The floor is what keeps `587` out of the refusal set. A shorter route into `literals` would
+    // arm the redactor with it and start refusing legitimate response bodies.
+    assert.ok(!secrets.literals.includes('587'))
+    assert.deepEqual([...secrets.missing], [])
+  })
+
+  it('skips the `..data` subdirectory Kubernetes projects through, so no value is read twice', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cf-secrets-'))
+    try {
+      mkdirSync(join(dir, '..2026_09_01_20_00_00'))
+      writeFileSync(join(dir, '..2026_09_01_20_00_00', 'BEACON_TOKEN'), 'a-token-long-enough-to-count')
+      writeFileSync(join(dir, 'BEACON_TOKEN'), 'a-token-long-enough-to-count')
+      process.env.CONFORMANCE_SECRETS_FILE = dir
+      const secrets = loadSecrets('micro')
+      assert.deepEqual(
+        secrets.literals.filter((l) => l === 'a-token-long-enough-to-count').length,
+        1,
+      )
+    } finally {
+      delete process.env.CONFORMANCE_SECRETS_FILE
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('an unreadable directory is MISSING, never silently empty', () => {
+    process.env.CONFORMANCE_SECRETS_FILE = join(tmpdir(), 'cf-secrets-that-is-not-there')
+    try {
+      const secrets = loadSecrets('micro')
+      assert.equal(secrets.missing.length, 1)
+      assert.match(secrets.source, /UNREADABLE/)
+    } finally {
+      delete process.env.CONFORMANCE_SECRETS_FILE
     }
   })
 })
