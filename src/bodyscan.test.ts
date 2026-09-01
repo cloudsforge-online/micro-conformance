@@ -912,3 +912,106 @@ describe('the vocabulary', () => {
  * A handler that assembles a body in a way this analyser reads as clean and a runtime that puts a
  * key in it anyway is a gap neither this file nor the estate sweep can close.
  */
+
+/* ------------------------------------------- a service that now runs inside another repository */
+
+/**
+ * A fixture estate laid out by PATH, so a module can be nested.
+ *
+ * The `estate` helper above writes one flat `src/`, which is exactly the shape that made the
+ * defect below invisible: every case in this file described one repository, so nothing here could
+ * ever have noticed that a repository had stopped being a service.
+ */
+function scanPaths(files: Readonly<Record<string, string>>): EstateScan {
+  const dir = mkdtempSync(join(tmpdir(), 'bodyscan-merged-'))
+  try {
+    for (const [path, contents] of Object.entries(files)) {
+      const full = join(dir, path)
+      mkdirSync(join(full, '..'), { recursive: true })
+      writeFileSync(full, contents)
+    }
+    return scanEstate({ estateDir: dir, exclude: [], dynamicScans: [] })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+const ROUTES = (path: string) =>
+  `${PREAMBLE}\nfunction buildRoutes(): Route[] {\n  return [\n` +
+  `    { method: 'GET', path: '${path}', handle: async () => ({ status: 200, body: deps.thing.read() }) },\n` +
+  '  ]\n}\n'
+const FILLER = 'export const filler = 1\n'
+
+describe('a service that now runs inside another repository', () => {
+  // Enough shared basenames for `absorptionsOf` to call the module a copy of the checkout.
+  const copyOf = (repo: string, at: string, files: Readonly<Record<string, string>>) => {
+    const out: Record<string, string> = {}
+    for (const [name, contents] of Object.entries(files)) {
+      out[`${repo}/src/${name}`] = contents
+      out[`${at}/${name}`] = contents
+    }
+    return out
+  }
+
+  it('judges the MODULE, so one key-holding module does not make its siblings key-holding', () => {
+    const scanned = scanPaths({
+      'agora/src/server.ts': ROUTES('/v1/agora'),
+      ...copyOf('wallet', 'agora/src/wallet', {
+        'server.ts': ROUTES('/v1/wallets'),
+        'migrations.ts': SECRET_TABLE,
+        'env.ts': FILLER,
+      }),
+      ...copyOf('market', 'agora/src/market', {
+        'server.ts': ROUTES('/v1/listings'),
+        'migrations.ts': 'export const migrations = [`create table listings (id text not null)`]\n',
+        'env.ts': FILLER,
+      }),
+    })
+    // Only wallet. Before this, `agora` was one service, wallet's secret column made the whole
+    // repository key-holding, and market's routes joined the gate's denominator with it.
+    assert.deepEqual([...scanned.holdsKeyMaterial].sort(), ['wallet'])
+    const units = new Map(scanned.routes.map((route) => [route.path, route.unit]))
+    assert.equal(units.get('/v1/wallets'), 'wallet')
+    assert.equal(units.get('/v1/listings'), 'market')
+    assert.equal(units.get('/v1/agora'), 'agora')
+    // And the path still opens: the repository is where the bytes are.
+    const wallet = scanned.routes.find((route) => route.path === '/v1/wallets')
+    assert.equal(wallet?.service, 'agora')
+    assert.equal(wallet?.file, join('src', 'wallet', 'server.ts'))
+  })
+
+  it('reads a module NESTED two deep, and its own migrations decide it — not its parent’s', () => {
+    // notify → activity → agora. Reading only one level filed notify's files under `activity`,
+    // whose migrations hold no secret, and ten of notify's routes left the key-material gate.
+    const scanned = scanPaths({
+      'agora/src/server.ts': ROUTES('/v1/agora'),
+      ...copyOf('activity', 'agora/src/activity', {
+        'server.ts': ROUTES('/v1/activity'),
+        'migrations.ts': 'export const migrations = [`create table events (id text not null)`]\n',
+        'env.ts': FILLER,
+      }),
+      ...copyOf('notify', 'agora/src/activity/notify', {
+        'server.ts': ROUTES('/v1/deliveries'),
+        'migrations.ts': REFRESH_TABLE,
+        'env.ts': FILLER,
+      }),
+    })
+    assert.deepEqual([...scanned.holdsKeyMaterial].sort(), ['notify'])
+    const units = new Map(scanned.routes.map((route) => [route.path, route.unit]))
+    assert.equal(units.get('/v1/deliveries'), 'notify')
+    assert.equal(units.get('/v1/activity'), 'activity')
+  })
+
+  it('does not scan the frozen checkout as well — one service is one route surface', () => {
+    const scanned = scanPaths({
+      'agora/src/server.ts': ROUTES('/v1/agora'),
+      ...copyOf('wallet', 'agora/src/wallet', {
+        'server.ts': ROUTES('/v1/wallets'),
+        'migrations.ts': SECRET_TABLE,
+        'env.ts': FILLER,
+      }),
+    })
+    assert.equal(scanned.routes.filter((route) => route.path === '/v1/wallets').length, 1)
+    assert.deepEqual([...scanned.services].sort(), ['agora', 'wallet'])
+  })
+})
