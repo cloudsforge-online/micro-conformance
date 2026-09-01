@@ -1495,13 +1495,21 @@ export function absorptionsOf(estateDir: string, repos: readonly string[]): read
         const relativeModule = join(relativeDir, entry)
         const moduleDir = join(estateDir, absorber, relativeModule)
         if (!isDirectory(moduleDir)) continue
-        if (
-          entry !== absorber &&
-          candidates.has(entry) &&
-          !found.some((existing) => existing.service === entry) &&
-          looksLikeACopy(join(estateDir, entry, 'src'), moduleDir)
-        ) {
-          found.push({ service: entry, into: absorber, path: relativeModule })
+        // `hub-api` is `agora/src/hub` and `admin-api` is `agora/src/admin`: the repository name
+        // carries a suffix the module directory does not. Tried as well as the exact name, never
+        // instead of it, and `looksLikeACopy` still has to agree — so this is a candidate rather
+        // than a rule. Without it those two services are read from BOTH their own checkout and
+        // their module, which is the double count this function exists to remove.
+        for (const service of [entry, `${entry}-api`]) {
+          if (
+            service !== absorber &&
+            candidates.has(service) &&
+            !found.some((existing) => existing.service === service) &&
+            looksLikeACopy(join(estateDir, service, 'src'), moduleDir)
+          ) {
+            found.push({ service, into: absorber, path: relativeModule })
+            break
+          }
         }
         descend(relativeModule, depth + 1)
       }

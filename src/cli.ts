@@ -16,7 +16,7 @@
  * corpus with a hole in it that reports success is worse than no corpus.
  */
 
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve as resolvePath } from 'node:path'
 import {
   BASELINE_BLIND_ROUTES,
@@ -42,7 +42,7 @@ import {
   sweepEstate,
   vocabularyDrift,
 } from './ledgeraccounts.ts'
-import { BASELINE_UNRESOLVED, MIN_SERVICES } from './ledgeraccounts.ts'
+import { BASELINE_UNRESOLVED, MIN_SERVICES, absorptionsOf } from './ledgeraccounts.ts'
 import { record } from './record.ts'
 import { ALL_SCENARIOS } from './scenarios/index.ts'
 
@@ -702,12 +702,35 @@ function doBodyScan(flags: Flags): number {
  * likely to be noticed by anything else.
  */
 function doBodyScanCanary(flags: Flags): number {
-  const target = resolvePath(flags.estate, 'wallet', 'src')
+  /*
+   * PLANTED WHERE THE SWEEP READS, WHICH IS NO LONGER `wallet/src`.
+   *
+   * `wallet` was absorbed into `agora`, and the scan reads the live copy at `agora/src/wallet`
+   * rather than the frozen checkout — so a canary hard-coded to `wallet/src` plants a leaking route
+   * into a directory nothing opens, and then correctly reports that the sweep "stayed GREEN". That
+   * failure was real and worth having: it is the canary catching a change to the checker, which is
+   * exactly its job. The fix is to ask the same function the sweep asks, not to move the baseline.
+   *
+   * Still FATAL when `wallet` is absent altogether — an unplantable canary must fail rather than
+   * quietly pick a different repository, because the whole point is that this file is judged by the
+   * pass that judges `custody`'s real routes.
+   */
+  let repos: string[] = []
+  try {
+    repos = readdirSync(flags.estate)
+  } catch {
+    repos = []
+  }
+  const moved = absorptionsOf(flags.estate, repos).find((entry) => entry.service === 'wallet')
+  const target = moved
+    ? resolvePath(flags.estate, moved.into, moved.path)
+    : resolvePath(flags.estate, 'wallet', 'src')
   if (!existsSync(target)) {
-    console.error(`no micro-wallet checkout at ${target}, so the canary cannot be planted`)
+    console.error(`no micro-wallet sources at ${target}, so the canary cannot be planted`)
     console.error('A canary that cannot be planted must FAIL, never be skipped.')
     return 1
   }
+  if (moved) console.log(`planting in ${moved.into}/${moved.path} — wallet's sources moved there`)
   const canary = join(target, '__bodyscan_canary.ts')
   const grade = (ok: boolean, why: string): void => {
     if (!ok) throw new Error(why)
