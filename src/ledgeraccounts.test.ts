@@ -1087,6 +1087,24 @@ export function go() {
     assert.deepEqual(swept.services, ['agora', 'policy'])
   })
 
+  it('matches a repository whose name carries a suffix the module directory drops', () => {
+    // `hub-api` is `agora/src/hub`; `admin-api` is `agora/src/admin`. Without this the two are read
+    // from BOTH places, and — in micro-deploy's grant derivation, which shares this rule — their
+    // outbound scopes were attributed to `agora` itself, which is a grant widening dressed as a
+    // derivation.
+    const swept = sweepEstateOf({
+      'hub-api': { 'ledgerclient.ts': LEDGER_CLIENT, 'server.ts': CALLER('platform'), 'env.ts': ENV },
+      agora: {
+        'kernel.ts': 'export const boot = () => 1\n',
+        'hub/ledgerclient.ts': LEDGER_CLIENT,
+        'hub/server.ts': CALLER('platform'),
+        'hub/env.ts': ENV,
+      },
+    })
+    assert.deepEqual(swept.absorbed, ['hub-api→agora'])
+    assert.deepEqual(swept.services, ['agora'])
+  })
+
   it('an absorbed module keeps its OWN resolver — a sibling module may not answer its helper', () => {
     // The regression the merge introduced. `market/ledgerclient.ts` takes its subject from a
     // parameter; pre-merge only market's own call site answered it, and the claim resolved to
