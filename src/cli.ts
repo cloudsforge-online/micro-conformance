@@ -36,9 +36,11 @@ import { assertSecretLiterals, baseNames, loadSecrets } from './env.ts'
 import {
   formatGrammarDrift,
   formatReconciliation,
+  formatVocabularyDrift,
   reconcileAccountClaims,
   subjectGrammarDrift,
   sweepEstate,
+  vocabularyDrift,
 } from './ledgeraccounts.ts'
 import { BASELINE_UNRESOLVED, MIN_SERVICES } from './ledgeraccounts.ts'
 import { record } from './record.ts'
@@ -529,10 +531,14 @@ function doLedgerAccounts(flags: Flags): number {
   const result = reconcileAccountClaims(sweep.claims, { maxUnresolved: flags.maxUnresolved })
   console.log(formatReconciliation(result, sweep))
   console.log('')
-  if (sweep.services.length < MIN_SERVICES) {
+  // Read PLUS absorbed — see MIN_SERVICES. A checkout whose sources are read inside the repository
+  // that absorbed it was not skipped, and counting it as missing would fail a complete estate.
+  const accountedFor = sweep.services.length + sweep.absorbed.length
+  if (accountedFor < MIN_SERVICES) {
     console.error(
-      `only ${sweep.services.length} repositories under ${flags.estate} — expected at least ` +
-        `${MIN_SERVICES}. A sweep of a partial checkout cannot certify the estate.`,
+      `only ${accountedFor} repositories accounted for under ${flags.estate} ` +
+        `(${sweep.services.length} read, ${sweep.absorbed.length} read inside another) — expected ` +
+        `at least ${MIN_SERVICES}. A sweep of a partial checkout cannot certify the estate.`,
     )
     return 1
   }
@@ -547,6 +553,33 @@ function doLedgerAccounts(flags: Flags): number {
   // checkout missing from a FULL estate is still a failure and not a skip: "the subject grammar
   // agrees" said about a file that was not there is the kind of sentence this repository exists to
   // stop printing.
+  // The two closed vocabularies, against the migrations that decide them. HERE and not in this
+  // repository's own suite for `subjectGrammarDrift`'s reason: `micro-ledger` is a sibling
+  // checkout, so a case that can only run where the estate is would skip in the one place that
+  // gates a merge. This is the check that would have caught micro-org#499 the day migration 18
+  // landed — `inventory` in the ledger's constraint and not in `ACCOUNT_PURPOSES` made a plain
+  // string literal read as "not static" and failed the gate on a place it could read perfectly.
+  const migrationsSource = join(flags.estate, 'ledger', 'src', 'migrations.ts')
+  let migrationsText: string | null = null
+  try {
+    migrationsText = readFileSync(migrationsSource, 'utf8')
+  } catch {
+    migrationsText = null
+  }
+  const vocabulary = vocabularyDrift(migrationsText ?? '')
+  const vocabularyReport = formatVocabularyDrift(vocabulary)
+  if (vocabularyReport === null) {
+    console.log(
+      `the account vocabularies agree with ${relative(process.cwd(), migrationsSource) || migrationsSource}`,
+    )
+  } else {
+    console.error(vocabularyReport)
+    if (migrationsText === null) console.error(`  ${migrationsSource} could not be read`)
+    console.log('')
+    console.log('FAILED')
+    return 1
+  }
+
   const moneySource = join(flags.estate, 'contracts', 'packages', 'money', 'src', 'index.ts')
   let grammarText: string | null = null
   try {

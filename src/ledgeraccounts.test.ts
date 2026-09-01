@@ -29,11 +29,14 @@ import {
   extractAccountClaims,
   formatGrammarDrift,
   formatReconciliation,
+  formatVocabularyDrift,
   reconcileAccountClaims,
   subjectGrammarDrift,
   subjectKindOf,
   accountSubjectConstants,
   sweepEstate,
+  absorptionsOf,
+  vocabularyDrift,
 } from './ledgeraccounts.ts'
 
 /**
@@ -322,7 +325,10 @@ describe('the estate itself, when it is on disk', () => {
   const estateDir = join(import.meta.dirname, '..', '..')
   let present = 0
   try {
-    present = sweepEstate({ estateDir }).services.length
+    // Read PLUS absorbed, the same sum the CLI grades on — twenty checkouts are now read inside
+    // another checkout, and counting only what was opened would skip this case on a complete estate.
+    const probe = sweepEstate({ estateDir })
+    present = probe.services.length + probe.absorbed.length
   } catch {
     present = 0
   }
@@ -930,5 +936,185 @@ export function postings() {
 `,
     )
     assert.equal(claims[0]!.subject, 'platform')
+  })
+})
+
+/**
+ * One estate on disk, laid out as the caller describes it.
+ *
+ * `sweepOneRepo` above cannot express any of the cases below, because every one of them is about
+ * the relationship BETWEEN two checkouts — which one is read, and whose call sites may answer
+ * whose helper. A fixture with one repository in it would pass while proving nothing.
+ */
+function sweepEstateOf(repos: Readonly<Record<string, Readonly<Record<string, string>>>>) {
+  const dir = mkdtempSync(join(tmpdir(), 'cf-estate-'))
+  try {
+    for (const [repo, files] of Object.entries(repos)) {
+      for (const [name, source] of Object.entries(files)) {
+        const full = join(dir, repo, 'src', name)
+        mkdirSync(dirname(full), { recursive: true })
+        writeFileSync(full, source)
+      }
+    }
+    const sweep = sweepEstate({ estateDir: dir, exclude: [] })
+    return {
+      absorbed: sweep.absorbed.map((entry) => `${entry.service}→${entry.into}`).sort(),
+      services: [...sweep.services].sort(),
+      sites: sweep.claims.map((claim) => `${claim.service}/${claim.file}`),
+      claims: sweep.claims,
+      derived: absorptionsOf(dir, Object.keys(repos)),
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+describe('the ledger vocabularies, against the migrations that decide them', () => {
+  const CONSTRAINT = (purposes: string, types: string) => `
+    constraint accounts_purpose_chk check (
+      purpose in (${purposes})
+    ),
+    constraint accounts_type_chk check (
+      type in (${types})
+    )
+  `
+  const CURRENT = CONSTRAINT(
+    "'available', 'reserved', 'escrow', 'treasury', 'fees', 'payout_due', 'suspense', 'inventory'",
+    "'liability', 'asset', 'revenue', 'expense', 'equity', 'clearing'",
+  )
+
+  it('agrees with the estate it ships beside', () => {
+    assert.equal(formatVocabularyDrift(vocabularyDrift(CURRENT)), null)
+  })
+
+  it('reads the LAST constraint, because a widened one is appended and never edited in place', () => {
+    // Migration 1's seven, then migration 18's eight. A reader that took the first would report
+    // `inventory` as retired and be confidently wrong — which is the whole shape of micro-org#499.
+    const appended =
+      CONSTRAINT("'available', 'reserved', 'escrow', 'treasury', 'fees', 'payout_due', 'suspense'", "'liability'") +
+      CURRENT
+    assert.equal(formatVocabularyDrift(vocabularyDrift(appended)), null)
+  })
+
+  it('names a purpose the ledger permits and this file has no word for', () => {
+    const widened = CONSTRAINT(
+      "'available', 'reserved', 'escrow', 'treasury', 'fees', 'payout_due', 'suspense', 'inventory', 'rebate'",
+      "'liability', 'asset', 'revenue', 'expense', 'equity', 'clearing'",
+    )
+    const drift = vocabularyDrift(widened)
+    assert.deepEqual([...drift.purposes.missing], ['rebate'])
+    assert.match(formatVocabularyDrift(drift) ?? '', /purposes this sweep has no word for: rebate/)
+  })
+
+  it('names a type the ledger has dropped — the direction that would BLESS a rejected value', () => {
+    const narrowed = CONSTRAINT(
+      "'available', 'reserved', 'escrow', 'treasury', 'fees', 'payout_due', 'suspense', 'inventory'",
+      "'liability', 'asset', 'revenue', 'expense', 'equity'",
+    )
+    const drift = vocabularyDrift(narrowed)
+    assert.deepEqual([...drift.types.retired], ['clearing'])
+    assert.match(formatVocabularyDrift(drift) ?? '', /bless a value the check constraint rejects/)
+  })
+
+  it('an unreadable constraint is its own outcome, never agreement', () => {
+    const drift = vocabularyDrift('nothing in here declares anything')
+    assert.equal(drift.purposes.unreadable, true)
+    assert.equal(drift.types.unreadable, true)
+    assert.match(formatVocabularyDrift(drift) ?? '', /UNCHECKED, which is not the same as agreed/)
+  })
+
+  it("resolves the desk's inventory account, which is the literal the stale mirror could not read", () => {
+    const claim = oneClaim(
+      sweepOneRepo({
+        'money.ts': `
+export const DESK_SUBJECT = 'exchange'
+function desk(assetCode: string) {
+  return { subject: DESK_SUBJECT, assetCode, purpose: 'inventory', type: 'equity' } as const
+}
+`,
+      }),
+    )
+    assert.equal(claim.purpose, 'inventory')
+    assert.equal(claim.unresolved, false)
+  })
+})
+
+describe('a checkout whose code now runs inside another checkout', () => {
+  const LEDGER_CLIENT = `
+export function ensure(input: { subject: string }) {
+  return { subject: input.subject, assetCode: 'EMBER', purpose: 'available', type: 'liability' }
+}
+`
+  const ENV = 'export const env = { url: process.env.LEDGER_URL }\n'
+  const CALLER = (subject: string) => `
+import { ensure } from './ledgerclient.ts'
+export function go() {
+  return ensure({ subject: '${subject}' })
+}
+`
+
+  it('reads the live copy and skips the frozen one, so one service is one place', () => {
+    const swept = sweepEstateOf({
+      market: { 'ledgerclient.ts': LEDGER_CLIENT, 'server.ts': CALLER('platform'), 'env.ts': ENV },
+      agora: {
+        'kernel.ts': 'export const boot = () => 1\n',
+        'market/ledgerclient.ts': LEDGER_CLIENT,
+        'market/server.ts': CALLER('platform'),
+        'market/env.ts': ENV,
+      },
+    })
+    assert.deepEqual(swept.absorbed, ['market→agora'])
+    assert.deepEqual(swept.services, ['agora'])
+    // The path still names the service, so a finding opens where the code actually runs.
+    assert.deepEqual(swept.sites.sort(), ['agora/src/market/ledgerclient.ts'])
+  })
+
+  it('a matching directory name is not enough — the module has to be a copy of the repository', () => {
+    const swept = sweepEstateOf({
+      policy: {
+        'ledgerclient.ts': LEDGER_CLIENT,
+        'server.ts': CALLER('platform'),
+        'rules.ts': 'export const rules = []\n',
+        'env.ts': 'export const env = {}\n',
+      },
+      agora: {
+        'kernel.ts': 'export const boot = () => 1\n',
+        // A directory that happens to be called `policy` and shares nothing with the repository.
+        'policy/localhelper.ts': 'export const local = () => 2\n',
+      },
+    })
+    assert.deepEqual(swept.absorbed, [])
+    assert.deepEqual(swept.services, ['agora', 'policy'])
+  })
+
+  it('an absorbed module keeps its OWN resolver — a sibling module may not answer its helper', () => {
+    // The regression the merge introduced. `market/ledgerclient.ts` takes its subject from a
+    // parameter; pre-merge only market's own call site answered it, and the claim resolved to
+    // `platform`. One resolver over the whole of `agora` lets mint's call site answer it too, the
+    // union widens past what the sweep will cap, and a claim that WAS readable reads as `*`.
+    const swept = sweepEstateOf({
+      market: { 'ledgerclient.ts': LEDGER_CLIENT, 'server.ts': CALLER('platform'), 'env.ts': ENV },
+      mint: { 'ledgerclient.ts': LEDGER_CLIENT, 'server.ts': CALLER('clearing'), 'env.ts': ENV },
+      agora: {
+        'kernel.ts': 'export const boot = () => 1\n',
+        'market/ledgerclient.ts': LEDGER_CLIENT,
+        'market/server.ts': CALLER('platform'),
+        'market/env.ts': ENV,
+        'mint/ledgerclient.ts': LEDGER_CLIENT,
+        'mint/server.ts': CALLER('clearing'),
+        'mint/env.ts': ENV,
+      },
+    })
+    assert.deepEqual(swept.absorbed, ['market→agora', 'mint→agora'])
+    const byFile = new Map(swept.claims.map((claim) => [claim.file, claim]))
+    const market = byFile.get(join('src', 'market', 'ledgerclient.ts'))
+    const mint = byFile.get(join('src', 'mint', 'ledgerclient.ts'))
+    assert.ok(market && mint, [...byFile.keys()].join(', '))
+    // The KIND each module's own caller decides. A leak between scopes makes both `*`, because the
+    // union of two subjects is not a subject.
+    assert.equal(market.subject, 'platform')
+    assert.equal(market.unresolved, false)
+    assert.equal(mint.subject, 'clearing')
+    assert.equal(mint.unresolved, false)
   })
 })

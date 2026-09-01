@@ -60,14 +60,24 @@
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import ts from 'typescript'
 
 /** The ledger's closed `accounts_type_chk` vocabulary (ledger/src/migrations.ts). */
 export const ACCOUNT_TYPES = ['liability', 'asset', 'revenue', 'expense', 'equity', 'clearing'] as const
 export type AccountType = (typeof ACCOUNT_TYPES)[number]
 
-/** The ledger's closed `accounts_purpose_chk` vocabulary. */
+/**
+ * The ledger's closed `accounts_purpose_chk` vocabulary.
+ *
+ * A MIRROR, and `vocabularyDrift` is what stops it rotting. It rotted once: ledger migration 18
+ * added `inventory` for the Forge Exchange desk, this list was not touched, and the effect was not
+ * a missed defect but a manufactured one — `wallet/src/money.ts`'s `desk()` writes
+ * `purpose: 'inventory'` as a plain string literal, and a literal this list has no word for reads
+ * as "purpose not static". So a fully readable account spent a line of the unresolved budget,
+ * pushed the count to 9 against a budget of 8, and failed the estate gate as a blind spot that
+ * was never blind. See the entry beside `BASELINE_UNRESOLVED`.
+ */
 export const ACCOUNT_PURPOSES = [
   'available',
   'reserved',
@@ -76,6 +86,7 @@ export const ACCOUNT_PURPOSES = [
   'fees',
   'payout_due',
   'suspense',
+  'inventory',
 ] as const
 export type AccountPurpose = (typeof ACCOUNT_PURPOSES)[number]
 
@@ -212,6 +223,21 @@ export const CANONICAL_ACCOUNTS: readonly CanonicalAccount[] = Object.freeze([
       'so `liability`; and it must NOT be overdraft-exempt, which is what rules out `clearing`. ' +
       'ledger/src/reconcile.ts sums liabilities by TYPE with no subject filter, so a balance moving ' +
       'from `user:<id>/available` into it leaves the reconciliation invariant where it was.',
+  },
+  {
+    subject: 'exchange',
+    purpose: 'inventory',
+    type: 'equity',
+    because:
+      "wallet/src/money.ts, `desk()` — the Forge Exchange Desk's own holding in one asset, the " +
+      'counter-account for every conversion leg. `equity` and NOT `clearing`, and the reason is a ' +
+      'database column rather than a taxonomy: `clearing` is exempt from the overdraft check, so ' +
+      'the account this used to be could be drawn to any negative number and a conversion could ' +
+      'always be filled out of nothing. `equity` is credit-normal — the same posting direction the ' +
+      'clearing account took — and it reaches `overdraft_allowed = false`, so an order the desk ' +
+      'cannot fill is refused by Postgres inside the entry\'s own transaction. This row is what ' +
+      'makes a second service writing `inventory` as anything else an `implausible`, rather than a ' +
+      'purpose the chart says nothing about and therefore never judges.',
   },
   {
     subject: 'community',
@@ -395,6 +421,110 @@ export function formatGrammarDrift(drift: GrammarDrift): string | null {
       `this sweep classifies subjects contracts no longer declares: ${drift.retired.join(', ')} — ` +
         'it would bless a spelling the ledger throws on',
     )
+  }
+  return lines.length === 0 ? null : lines.join('\n')
+}
+
+/**
+ * The two closed vocabularies above, judged against the migrations that DECIDE them.
+ *
+ * `ACCOUNT_TYPES` and `ACCOUNT_PURPOSES` are copies of `accounts_type_chk` and
+ * `accounts_purpose_chk`, and until this function nothing held the copies to their originals. It
+ * had already gone wrong: ledger migration 18 added `inventory`, this file did not, and the effect
+ * was not a defect missed but a defect INVENTED — `wallet/src/money.ts` writes
+ * `purpose: 'inventory'` as a plain literal, a literal outside the vocabulary reads as "not
+ * static", and the estate gate failed on a place it could read perfectly well.
+ *
+ * That direction is the loud one. The other is worse and silent: a word RETIRED from the
+ * constraint but still listed here would let the sweep resolve, classify and BLESS a purpose the
+ * database now rejects — a green report about postings that die at the check constraint.
+ *
+ * Read from the LAST occurrence of each constraint in the file, not the first. Migrations are
+ * append-only and a widened vocabulary is written as `drop constraint` / `add constraint ... not
+ * valid` / `validate`, so the first `check (purpose in (...))` in `migrations.ts` is migration 1's
+ * — the original seven — and a reader that took it would report the current list as drift and be
+ * wrong in the confident direction.
+ *
+ * Source text, not a database: this runs in CI with no cluster, and the file is the thing every
+ * environment actually applies.
+ *
+ * `unreadable` is a distinct outcome from "no drift", for the reason `GrammarDrift` gives.
+ */
+export interface VocabularyDrift {
+  /** Words the ledger's constraint permits that this file has no entry for. */
+  readonly missing: readonly string[]
+  /** Words this file lists that the ledger's constraint no longer permits. */
+  readonly retired: readonly string[]
+  /** The constraint could not be found or parsed — never the same as agreement. */
+  readonly unreadable: boolean
+}
+
+/** Both constraints, each named by the column it guards. */
+export interface VocabularyReport {
+  readonly purposes: VocabularyDrift
+  readonly types: VocabularyDrift
+}
+
+const UNREADABLE: VocabularyDrift = Object.freeze({ missing: [], retired: [], unreadable: true })
+
+function checkConstraintWords(migrationsSource: string, column: string): readonly string[] | null {
+  // Every occurrence, then the last — see the docstring. `[\s\S]` rather than the `s` flag because
+  // the list is written across lines in the later migrations and on one line in migration 1, and
+  // both shapes have to parse identically or the comparison is against whichever one blinked.
+  const pattern = new RegExp(`accounts_${column}_chk check \\(\\s*${column} in \\(([\\s\\S]*?)\\)`, 'g')
+  const matches = [...migrationsSource.matchAll(pattern)]
+  const last = matches[matches.length - 1]
+  if (last === undefined) return null
+  const words = [...(last[1] as string).matchAll(/'([a-z_]+)'/g)].map((m) => m[1] as string)
+  return words.length === 0 ? null : words
+}
+
+function driftOf(declared: readonly string[] | null, mirrored: readonly string[]): VocabularyDrift {
+  if (declared === null) return UNREADABLE
+  const inLedger = new Set(declared)
+  const inMirror = new Set<string>(mirrored)
+  return {
+    missing: declared.filter((word) => !inMirror.has(word)),
+    retired: mirrored.filter((word) => !inLedger.has(word)),
+    unreadable: false,
+  }
+}
+
+/** `ACCOUNT_PURPOSES` and `ACCOUNT_TYPES`, against `ledger/src/migrations.ts`. */
+export function vocabularyDrift(migrationsSource: string): VocabularyReport {
+  return {
+    purposes: driftOf(checkConstraintWords(migrationsSource, 'purpose'), ACCOUNT_PURPOSES),
+    types: driftOf(checkConstraintWords(migrationsSource, 'type'), ACCOUNT_TYPES),
+  }
+}
+
+/** The drift as a reader sees it, or `null` when both vocabularies agree. */
+export function formatVocabularyDrift(report: VocabularyReport): string | null {
+  const lines: string[] = []
+  for (const [column, drift] of [
+    ['purpose', report.purposes],
+    ['type', report.types],
+  ] as const) {
+    if (drift.unreadable) {
+      lines.push(
+        `the ledger's accounts_${column}_chk could not be read — the ${column} vocabulary is ` +
+          'UNCHECKED, which is not the same as agreed',
+      )
+      continue
+    }
+    if (drift.missing.length > 0) {
+      lines.push(
+        `the ledger permits ${column}s this sweep has no word for: ${drift.missing.join(', ')} — ` +
+          'a literal written with one reads as "not static" and spends a line of the unresolved ' +
+          'budget it does not owe',
+      )
+    }
+    if (drift.retired.length > 0) {
+      lines.push(
+        `this sweep lists ${column}s the ledger no longer permits: ${drift.retired.join(', ')} — ` +
+          'it would resolve and bless a value the check constraint rejects',
+      )
+    }
   }
   return lines.length === 0 ? null : lines.join('\n')
 }
@@ -1209,6 +1339,44 @@ export const DEFAULT_EXCLUDED = Object.freeze(['conformance'])
  * estate by design. Driving this to zero would need the sweep to read the database, which is
  * reconciliation's job and not this module's.
  *
+ * ── 2026-09-01, micro-org#499. STILL EIGHT, AND IT HAD READ TEN AND NINETEEN. ────────────────────
+ *
+ * The gate failed at 9 against this 8, then at 19 after the service merge. Neither number was a
+ * blind spot growing; both were this checker misreading an estate that had not changed. Written
+ * down here because the rule below says a MOVE needs a reason, and a number that stayed put
+ * through two false alarms needs one at least as much — otherwise the next reader finds an
+ * unchanged constant and no record that anything happened to it.
+ *
+ * THE NINTH PLACE WAS NEVER UNREADABLE. `wallet/src/money.ts`'s `desk()` writes
+ * `{ subject: DESK_SUBJECT, assetCode, purpose: 'inventory', type: 'equity' }` — a named constant
+ * and two plain string literals. It reported as "purpose not static" for one reason: ledger
+ * migration 18 added `inventory` to `accounts_purpose_chk` for the Forge Exchange desk, and
+ * `ACCOUNT_PURPOSES` here — a hand-copied mirror of that constraint — was not touched. A literal
+ * outside the vocabulary is not recognised as a purpose at all, so the most readable account in
+ * the estate spent a budget line and failed the estate gate. `vocabularyDrift` now reads both
+ * constraints out of `ledger/src/migrations.ts` and refuses the run on either direction of drift;
+ * the retired direction is the one worth fearing, because a word left here after the ledger drops
+ * it would let this sweep BLESS a value the check constraint rejects. `CANONICAL_ACCOUNTS` gained
+ * the desk's `(exchange, inventory, equity)` row in the same change, so `inventory` is now a
+ * purpose the chart judges rather than one it says nothing about.
+ *
+ * THE OTHER TEN PLACES WERE ONE SERVICE COUNTED TWICE. The merge moved sixteen services into
+ * `agora/src/<name>/` and deleted no repository, so the sweep read each of them in both places and
+ * the count doubled overnight. `absorptionsOf` derives that from the layout and reads the LIVE
+ * copy — the one the pod runs — skipping the frozen checkout. The drift between the two was
+ * already real: `market/src/server.ts:1622` and `agora/src/market/server.ts:1623` are a line
+ * apart, and a TYPE that had drifted would have been reported as a disagreement between two
+ * services that are one service and its own dead copy.
+ *
+ * AND THE MERGE HAD QUIETLY WEAKENED THE RESOLVER, which is the finding worth the most. One
+ * resolver per repository was one resolver per service until `agora` became sixteen of them;
+ * afterwards `micro-mint`'s call sites could answer `micro-market`'s helper, which is the exact
+ * cross-service guess `repoResolver`'s docstring exists to forbid. It had already cost readings:
+ * swept whole, `market/src/ledgerclient.ts`'s purpose went from resolved to "not static" and
+ * emberkin's and worlds' subjects went with it. The resolver now scopes to the MODULE, because
+ * the merge changed the process boundary and not the service boundary — and with it, the eight
+ * places below are the same eight this entry's predecessor described.
+ *
  * **The rule from the 11→12 entry stands unchanged: raising this again means reading the new line
  * and writing down why, here.** A budget that moves whenever it is inconvenient measures nothing.
  *
@@ -1220,12 +1388,20 @@ export const DEFAULT_EXCLUDED = Object.freeze(['conformance'])
 export const BASELINE_UNRESOLVED = 8
 
 /**
- * The smallest number of repositories a sweep may read and still claim to have swept the estate.
+ * The smallest number of repositories a sweep may ACCOUNT FOR and still claim to have swept the
+ * estate.
  *
  * `sweepEstate` silently skips a directory that is not there, which is the correct behaviour for a
  * partial checkout and a catastrophic one for a gate: an empty parent directory would produce
- * "0 disagreements" and pass. 40 is comfortably below the 49 currently on disk and far above any
- * accidental subset.
+ * "0 disagreements" and pass.
+ *
+ * ACCOUNTED FOR, not read — `services.length + absorbed.length`, and the distinction started
+ * mattering the day the merge landed. Twenty checkouts are now read inside another checkout rather
+ * than on their own, so `services.length` alone fell from 62 to 42 with no repository having gone
+ * anywhere. Grading on that number would have put a floor of 40 two absorptions away from
+ * refusing a complete estate as partial, which is a gate that fails when the estate gets tidier.
+ * The sum is what the guard always meant: 62 repositories were accounted for, none was silently
+ * absent.
  */
 export const MIN_SERVICES = 40
 
@@ -1235,8 +1411,95 @@ export interface SweepResult {
   readonly services: readonly string[]
   /** Deliberately not read, and why the caller can see it. */
   readonly excluded: readonly string[]
+  /**
+   * A checkout skipped because its code now runs inside another repository — see `absorptionsOf`.
+   *
+   * In the report for the same reason `excluded` is: a repository the sweep did not open must
+   * never be invisible, or "swept 48 repositories" becomes a number nobody can check.
+   */
+  readonly absorbed: readonly Absorption[]
   /** Every `.ts` file opened. The denominator behind "the sweep found nothing". */
   readonly filesRead: number
+}
+
+/** One repository whose sources are read from the repository that absorbed it. */
+export interface Absorption {
+  readonly service: string
+  readonly into: string
+}
+
+/**
+ * Which checkouts are now MODULES of another checkout, derived from the layout rather than listed.
+ *
+ * The service merge (micro-org#517 and the M-waves behind it) moved sixteen services into
+ * `agora/src/<name>/` without deleting a single repository — deliberately, because the standalone
+ * checkout is still where the history is and still where a rollback would start. The consequence
+ * for a sweep that walks the estate directory is that every one of those services is read TWICE,
+ * and that is not merely a doubled number:
+ *
+ *   * The unresolved budget is measured in PLACES, and one place became two. The count went from
+ *     nine to nineteen the day the merge landed, with nothing about the estate having changed.
+ *   * Worse, the two copies DRIFT — `market/src/server.ts:1622` and `agora/src/market/server.ts:1623`
+ *     are already a line apart. A type changed in the live module and not backported to the frozen
+ *     checkout would be reported as a DISAGREEMENT between two services, and the two services
+ *     would be one service and its own dead copy. A gate that invents conflicts is a gate people
+ *     turn off.
+ *
+ * THE LIVE COPY WINS. `agora/src/market/` is what the pod runs; `market/src/` is what it was cut
+ * from. Reading the frozen one would be this repository's own worst failure mode — a check that
+ * certifies code which is not the code in production — so the absorbed checkout is skipped and its
+ * findings come back under a path that still names it, `agora/src/market/...`, which opens.
+ *
+ * Derived from the directories, and NOT from `deploy/scripts/k8s-render.py`'s `MERGED_INTO`. Two
+ * reasons: that map is service-to-service for rendering Deployments and says nothing about where
+ * sources ended up, and reading it would make this sweep depend on a second sibling repository
+ * for a fact the checkouts already state. The layout cannot be stale, because it IS the thing
+ * being read.
+ *
+ * The evidence required is deliberately more than a matching name. A directory called `policy`
+ * inside another repository proves nothing on its own, so a majority of the standalone
+ * repository's own top-level `src/*.ts` basenames must also be present in the module directory.
+ * A coincidental name does not clear that; a copied service clears it by a mile — the sixteen in
+ * this estate each match all but one or two files, the bootstrap that the absorbing kernel
+ * replaced.
+ */
+export function absorptionsOf(estateDir: string, repos: readonly string[]): readonly Absorption[] {
+  const candidates = new Set(repos.filter((repo) => isDirectory(join(estateDir, repo, 'src'))))
+  const found: Absorption[] = []
+  for (const absorber of [...candidates].sort()) {
+    let modules: string[]
+    try {
+      modules = readdirSync(join(estateDir, absorber, 'src')).sort()
+    } catch {
+      continue
+    }
+    for (const module of modules) {
+      if (module === absorber || !candidates.has(module)) continue
+      const moduleDir = join(estateDir, absorber, 'src', module)
+      if (!isDirectory(moduleDir)) continue
+      if (found.some((entry) => entry.service === module)) continue
+      if (!looksLikeACopy(join(estateDir, module, 'src'), moduleDir)) continue
+      found.push({ service: module, into: absorber })
+    }
+  }
+  return found
+}
+
+/** A majority of the standalone repository's own top-level sources, by name, present in the module. */
+function looksLikeACopy(standaloneSrc: string, moduleDir: string): boolean {
+  const namesIn = (dir: string): Set<string> => {
+    try {
+      return new Set(readdirSync(dir).filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts')))
+    } catch {
+      return new Set()
+    }
+  }
+  const standalone = namesIn(standaloneSrc)
+  if (standalone.size < 3) return false
+  const module = namesIn(moduleDir)
+  let shared = 0
+  for (const name of standalone) if (module.has(name)) shared += 1
+  return shared * 2 > standalone.size
 }
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage', 'corpus', 'fixtures'])
@@ -1316,9 +1579,18 @@ export function sweepEstate(options: SweepOptions): SweepResult {
     subjectConstants = new Map()
   }
 
+  // Before the loop, because whether a repository is read at all depends on the WHOLE layout: a
+  // checkout is skipped only once another checkout is shown to be holding its sources.
+  const absorbed = absorptionsOf(
+    options.estateDir,
+    repos.filter((repo) => !SKIP_DIRS.has(repo) && !excluded.includes(repo)),
+  )
+  const absorbedNames = new Set(absorbed.map((entry) => entry.service))
+
   for (const repo of repos) {
     if (SKIP_DIRS.has(repo)) continue
     if (excluded.includes(repo)) continue
+    if (absorbedNames.has(repo)) continue
 
     // `src/`, AND `packages/*/src/`. **`micro-contracts` is the second shape**, and it is the one
     // repository whose account spellings every service copies — `engagementAccount` lives in
@@ -1366,11 +1638,43 @@ export function sweepEstate(options: SweepOptions): SweepResult {
       parsed.push({ file: relativeFile, tree: parseSource(relativeFile, text) })
     }
 
-    const resolver = repoResolver(parsed, subjectConstants)
-    for (const source of parsed) claims.push(...claimsFromTree(repo, source.file, source.tree, resolver))
+    /*
+     * ONE RESOLVER PER SERVICE, WHICH IS NO LONGER ONE RESOLVER PER REPOSITORY.
+     *
+     * `repoResolver`'s own docstring states the rule it enforces: "Passing the whole estate would
+     * let `micro-market`'s `holder` be answered by `micro-mint`'s call sites, which is exactly the
+     * cross-service guess this whole module exists to catch rather than commit." After the merge,
+     * `agora` HOLDS market and mint — so a single resolver over the repository is that cross-service
+     * guess, arrived at without anybody choosing it.
+     *
+     * It is not theoretical. Sweeping merged `agora` under one resolver moved
+     * `market/src/ledgerclient.ts`'s purpose from readable to "not static", because a second
+     * module's call sites widened the union past the cap. The merge changed the PROCESS boundary;
+     * it did not change the service boundary, and the resolver follows the service.
+     *
+     * So each absorbed module directory is its own scope, and the absorbing repository's own
+     * top-level sources are one more. A repository that absorbed nothing has exactly one scope and
+     * behaves precisely as it did before this existed.
+     */
+    const modules = absorbed.filter((entry) => entry.into === repo).map((entry) => entry.service)
+    const scopes = new Map<string, RepoSource[]>()
+    for (const source of parsed) {
+      const segments = source.file.split(sep)
+      const module =
+        segments[0] === 'src' && segments.length > 2 && modules.includes(segments[1] as string)
+          ? (segments[1] as string)
+          : ''
+      const bucket = scopes.get(module)
+      if (bucket) bucket.push(source)
+      else scopes.set(module, [source])
+    }
+    for (const sources of scopes.values()) {
+      const resolver = repoResolver(sources, subjectConstants)
+      for (const source of sources) claims.push(...claimsFromTree(repo, source.file, source.tree, resolver))
+    }
   }
 
-  return { claims, services, excluded, filesRead }
+  return { claims, services, excluded, absorbed, filesRead }
 }
 
 // ---------------------------------------------------------------------------
@@ -1579,6 +1883,13 @@ export function formatReconciliation(result: Reconciliation, sweep?: SweepResult
     )
     lines.push(`  ${sweep.services.join(' ')}`)
     if (sweep.excluded.length > 0) lines.push(`  not read: ${sweep.excluded.join(' ')}`)
+    if (sweep.absorbed.length > 0) {
+      lines.push(
+        `  read inside another checkout, not twice: ${sweep.absorbed
+          .map((entry) => `${entry.service}→${entry.into}`)
+          .join(' ')}`,
+      )
+    }
     lines.push('')
   }
 
