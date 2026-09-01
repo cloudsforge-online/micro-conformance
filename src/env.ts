@@ -10,7 +10,7 @@
  * reached on `127.0.0.1` and nothing here ever widens a binding: these are client URLs.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseEnvSecrets } from './redact.ts'
@@ -571,7 +571,7 @@ export function loadSecrets(baseName: string): HarnessSecrets {
   for (const file of files) {
     let contents: string
     try {
-      contents = readFileSync(file, 'utf8')
+      contents = isDirectory(file) ? envFileFromDirectory(file) : readFileSync(file, 'utf8')
     } catch {
       missing.push(file)
       continue
@@ -589,6 +589,45 @@ export function loadSecrets(baseName: string): HarnessSecrets {
     payServiceToken,
     base: baseName,
     missing,
+  }
+}
+
+/**
+ * A DIRECTORY of one-value-per-file, read as if it were an env file.
+ *
+ * That is the shape Kubernetes projects a Secret into — `/estate/secrets/BEACON_TOKEN` holding the
+ * token and nothing else — and it is the shape the runner gets in the cluster (micro-org#537).
+ * The compose runner bind-mounted `tokens.env` itself, which the cluster has no equivalent of
+ * without writing the estate's whole secret file to disk a second time.
+ *
+ * Synthesised into `NAME=value` lines rather than collected separately so `parseEnvSecrets` stays
+ * the single place that decides what counts as a literal — including the eight-character floor,
+ * which is what keeps `SMTP_PORT=587` out of the refusal set. A shorter path would have been to
+ * push the file contents straight into `literals`, and it would have quietly armed the redactor
+ * with `true`, `587` and `1`, which is how a hygiene check starts refusing legitimate bodies and
+ * gets switched off.
+ *
+ * Subdirectories are skipped, which is not incidental: Kubernetes projects a Secret through
+ * `..data` symlinks into a timestamped directory, so a naive recursive read would find every value
+ * twice and the `..2026_09_01_20_00_00` directory name in the middle of it.
+ */
+function envFileFromDirectory(dir: string): string {
+  const lines: string[] = []
+  for (const name of readdirSync(dir).sort()) {
+    if (name.startsWith('.')) continue
+    const full = join(dir, name)
+    if (isDirectory(full)) continue
+    // One value, one file, and the trailing newline a writer may or may not have left.
+    lines.push(`${name}=${readFileSync(full, 'utf8').replace(/\r?\n$/, '')}`)
+  }
+  return lines.join('\n')
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
   }
 }
 
