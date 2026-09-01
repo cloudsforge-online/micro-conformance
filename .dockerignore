@@ -1,4 +1,11 @@
-node_modules
+# The three the estate's secret-hygiene check requires by name, and it is right to.
+# `COPY corpus ./corpus` is narrow rather than `COPY . .`, but a narrow COPY today is a
+# broad one after somebody's convenient edit, and the build context is what a leak escapes
+# through.
+.env
+.env.*
 .git
+
+node_modules
 .github
 *.md
