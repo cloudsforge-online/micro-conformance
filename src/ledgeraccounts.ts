@@ -1425,7 +1425,17 @@ export interface SweepResult {
 /** One repository whose sources are read from the repository that absorbed it. */
 export interface Absorption {
   readonly service: string
+  /** The repository holding it now. */
   readonly into: string
+  /**
+   * Where its sources are, relative to that repository — `src/wallet`, `src/activity/notify`.
+   *
+   * NESTED, and it has to be: `notify` was absorbed into `activity` and `activity` into `agora`, so
+   * it sits two levels down. Reading only the first level attributed notify's files to `activity`,
+   * which meant notify's own `migrations.ts` — the one with the secret-bearing column — was never
+   * opened, and ten of its routes left the key-material gate without anybody deciding they should.
+   */
+  readonly path: string
 }
 
 /**
@@ -1465,24 +1475,58 @@ export interface Absorption {
  */
 export function absorptionsOf(estateDir: string, repos: readonly string[]): readonly Absorption[] {
   const candidates = new Set(repos.filter((repo) => isDirectory(join(estateDir, repo, 'src'))))
+  // Three levels below `src/`, because the estate already has two — `agora/src/activity/notify` —
+  // and a merge of a merge is the shape these waves keep producing. Bounded rather than unbounded
+  // so a symlink loop or a fixtures tree cannot turn a source sweep into a filesystem walk.
+  const MAX_DEPTH = 3
+  const discover = (absorbers: readonly string[]): Absorption[] => {
   const found: Absorption[] = []
-  for (const absorber of [...candidates].sort()) {
-    let modules: string[]
-    try {
-      modules = readdirSync(join(estateDir, absorber, 'src')).sort()
-    } catch {
-      continue
+  for (const absorber of absorbers) {
+    const descend = (relativeDir: string, depth: number): void => {
+      if (depth > MAX_DEPTH) return
+      let entries: string[]
+      try {
+        entries = readdirSync(join(estateDir, absorber, relativeDir)).sort()
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        if (SKIP_DIRS.has(entry)) continue
+        const relativeModule = join(relativeDir, entry)
+        const moduleDir = join(estateDir, absorber, relativeModule)
+        if (!isDirectory(moduleDir)) continue
+        if (
+          entry !== absorber &&
+          candidates.has(entry) &&
+          !found.some((existing) => existing.service === entry) &&
+          looksLikeACopy(join(estateDir, entry, 'src'), moduleDir)
+        ) {
+          found.push({ service: entry, into: absorber, path: relativeModule })
+        }
+        descend(relativeModule, depth + 1)
+      }
     }
-    for (const module of modules) {
-      if (module === absorber || !candidates.has(module)) continue
-      const moduleDir = join(estateDir, absorber, 'src', module)
-      if (!isDirectory(moduleDir)) continue
-      if (found.some((entry) => entry.service === module)) continue
-      if (!looksLikeACopy(join(estateDir, module, 'src'), moduleDir)) continue
-      found.push({ service: module, into: absorber })
-    }
+    descend('src', 1)
   }
   return found
+  }
+
+  /*
+   * TWO ROUNDS, AND THE SECOND IS NOT AN OPTIMISATION.
+   *
+   * `notify` was absorbed into `activity` and `activity` into `agora`, so `notify`'s sources exist
+   * in three places: its own checkout, `activity/src/notify`, and `agora/src/activity/notify`. A
+   * single round scanning every candidate as an absorber finds the middle one first and records
+   * `notify → activity` — pointing at a repository that is itself skipped, so notify's files are
+   * then read from NOWHERE. That is the failure this whole function exists to prevent, arrived at
+   * from the other direction.
+   *
+   * So the first round establishes only WHICH repositories are absorbed, and the second re-runs the
+   * search with those barred from absorbing anything. What is left are the repositories that
+   * actually run, and every module resolves to one of them.
+   */
+  const absorbedAnywhere = new Set(discover([...candidates].sort()).map((entry) => entry.service))
+  return discover([...candidates].sort().filter((repo) => !absorbedAnywhere.has(repo)))
 }
 
 /** A majority of the standalone repository's own top-level sources, by name, present in the module. */
@@ -1656,14 +1700,16 @@ export function sweepEstate(options: SweepOptions): SweepResult {
      * top-level sources are one more. A repository that absorbed nothing has exactly one scope and
      * behaves precisely as it did before this existed.
      */
-    const modules = absorbed.filter((entry) => entry.into === repo).map((entry) => entry.service)
+    // Longest path wins, so `src/activity/notify/x.ts` scopes to notify and not to activity. A
+    // first-match rule would put a nested module's files in its parent's scope, which is the same
+    // cross-service resolution one level further in.
+    const modules = absorbed
+      .filter((entry) => entry.into === repo)
+      .map((entry) => entry.path + sep)
+      .sort((a, b) => b.length - a.length)
     const scopes = new Map<string, RepoSource[]>()
     for (const source of parsed) {
-      const segments = source.file.split(sep)
-      const module =
-        segments[0] === 'src' && segments.length > 2 && modules.includes(segments[1] as string)
-          ? (segments[1] as string)
-          : ''
+      const module = modules.find((path) => source.file.startsWith(path)) ?? ''
       const bucket = scopes.get(module)
       if (bucket) bucket.push(source)
       else scopes.set(module, [source])

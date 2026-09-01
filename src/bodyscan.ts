@@ -109,8 +109,10 @@
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, dirname, relative, resolve } from 'node:path'
+import { join, dirname, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
+
+import { type Absorption, absorptionsOf } from './ledgeraccounts.ts'
 
 // ---------------------------------------------------------------------------
 // What "key material" means
@@ -291,7 +293,19 @@ export const KEY_SHAPES: readonly { readonly name: string; readonly pattern: Reg
 export type RouteSpelling = 'object-literal' | 'helper-call'
 
 export interface RouteRef {
+  /** The REPOSITORY the file is in, so `service/file:line` opens. */
   readonly service: string
+  /**
+   * The service this route actually belongs to — a module name inside an absorbing repository, or
+   * the repository itself when it absorbed nothing. See `absorptionsOf`.
+   *
+   * Separate from `service` because the two answer different questions and the merge made them
+   * different answers. `service` is where the bytes are, which is what a report has to print for a
+   * path to open. `unit` is whose route it is, which is what decides whether it sits in a
+   * key-holding service — and after `agora` absorbed `wallet`, judging on `service` put every
+   * module's routes, sixteen services' worth, into the key-holding bucket.
+   */
+  readonly unit: string
   /** Repository-relative, so a finding can be opened. */
   readonly file: string
   readonly line: number
@@ -372,10 +386,16 @@ export interface RouteHandler {
   readonly body: ts.Node
 }
 
-export function collectRoutes(service: string, file: string, tree: ts.SourceFile): RouteHandler[] {
+export function collectRoutes(
+  service: string,
+  file: string,
+  tree: ts.SourceFile,
+  unit: string = service,
+): RouteHandler[] {
   const out: RouteHandler[] = []
   const at = (node: ts.Node, method: string, path: string, spelling: RouteSpelling): RouteRef => ({
     service,
+    unit,
     file,
     line: tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1,
     method,
@@ -482,6 +502,8 @@ export type Severity = 'material' | 'adjacent' | 'opaque'
 
 export interface Finding {
   readonly service: string
+  /** The service the route belongs to — see `RouteRef.unit`. */
+  readonly unit: string
   readonly file: string
   readonly line: number
   readonly method: string
@@ -1156,7 +1178,10 @@ export interface EstateScan {
   readonly routes: readonly RouteRef[]
   readonly findings: readonly Finding[]
   readonly opaque: readonly Finding[]
-  /** Every repository whose route surface was read. */
+  /**
+   * Every SERVICE whose route surface was read — a module inside an absorbing repository counts as
+   * itself, because it is a service that happens to share a process. See `RouteRef.unit`.
+   */
   readonly services: readonly string[]
   /** Repositories with a `server.ts` whose route table yielded nothing. FATAL. */
   readonly unreadable: readonly UnreadableRoutes[]
@@ -1207,7 +1232,11 @@ export const DEFAULT_EXCLUDED = Object.freeze(['conformance'])
  *
  * Same reasoning as `MIN_SERVICES` in `ledgeraccounts.ts`, one layer sharper: this sweep silently
  * reads whatever `server.ts` files it finds, so an empty parent directory would report "0 routes,
- * no findings" and pass. The estate declares ~280 routes across ~29 servers today.
+ * no findings" and pass. The estate declares ~726 routes across 32 servers today.
+ *
+ * Counted in SERVERS and not repositories, which after the merge are different numbers in both
+ * directions: twenty services share `agora`'s repository, and none of them stopped being a server.
+ * Grading on repositories reads a tidier estate as a smaller one.
  */
 export const MIN_ROUTES = 150
 export const MIN_SERVERS = 20
@@ -1269,32 +1298,93 @@ export function scanEstate(options: ScanOptions): EstateScan {
     throw new Error(`no estate at ${options.estateDir}: ${String(err)}`)
   }
 
+  /*
+   * THE MERGE MADE "A REPOSITORY" AND "A SERVICE" DIFFERENT THINGS, AND THIS GATE IS ON SERVICES.
+   *
+   * Sixteen services now live at `agora/src/<name>/` with their checkouts still in place, so before
+   * this the scan read each of them twice AND judged all of them as one service. The second half is
+   * the damaging one: `agora` absorbed `wallet`, `wallet` has a secret-bearing column, so the whole
+   * of `agora` became key-holding and sixteen services' routes — 662 of them — moved into the
+   * bucket the gate counts. It went from 38 blind routes against a budget of 38 to 178, on a day
+   * nothing about any response body changed.
+   *
+   * So a UNIT is scanned, not a repository: either one absorbed module directory, or the absorbing
+   * repository's own remaining sources, or a whole repository that absorbed nothing. `RouteRef.unit`
+   * carries which, and every judgement below keys on it. `RouteRef.service` stays the repository so
+   * that a reported path still opens.
+   */
+  const absorbed = absorptionsOf(
+    options.estateDir,
+    repos.filter((repo) => !SKIP_DIRS.has(repo) && !excluded.includes(repo)),
+  )
+  const absorbedNames = new Set(absorbed.map((entry) => entry.service))
+
   for (const repo of repos) {
     if (SKIP_DIRS.has(repo)) continue
     if (excluded.includes(repo)) continue
+    if (absorbedNames.has(repo)) continue
     const repoRoot = resolve(options.estateDir, repo)
     const srcDir = join(repoRoot, 'src')
     if (!isDirectory(srcDir)) continue
 
-    const files: string[] = []
-    collectServerSources(srcDir, files)
-    if (files.length === 0) continue
+    const repoFiles: string[] = []
+    collectServerSources(srcDir, repoFiles)
+    if (repoFiles.length === 0) continue
 
+    // The import resolver stays REPOSITORY-wide, and correctly so: a module importing
+    // `../kernel.ts` has to resolve, because at runtime it does. It is the JUDGEMENT that is
+    // per-service, not the filesystem.
     const modules = new RepoModules(repoRoot)
-    let migrations = ''
-    try {
-      migrations = readFileSync(join(srcDir, 'migrations.ts'), 'utf8')
-    } catch {
-      migrations = ''
-    }
-    const secretTables = secretBearingTables(migrations)
-    // Structural evidence, not a word match: a table column that holds a secret, or a module whose
-    // whole job is holding one. Matching the vocabulary against source text would make every
-    // repository "key-holding", because `material` is an English word and half the estate's comments
-    // use it.
-    const vaultModule = files.some((file) => /\/(vault|keyring|keyEnvelope|keys)\.ts$/.test(file))
-    if (secretTables.size > 0 || vaultModule) holdsKeyMaterial.push(repo)
 
+    // Longest path wins, so `src/activity/notify/server.ts` is notify's and not activity's. That
+    // distinction is worth ten routes: notify holds a secret-bearing column and activity does not,
+    // and a first-match rule quietly moved notify's whole route surface out of the key-material
+    // gate by filing it under its parent.
+    const moduleDirs = absorbed
+      .filter((entry) => entry.into === repo)
+      .map((entry) => ({ unit: entry.service, prefix: join(repoRoot, entry.path) + sep, dir: join(repoRoot, entry.path) }))
+      .sort((a, b) => b.prefix.length - a.prefix.length)
+    const units = new Map<string, string[]>()
+    const unitRoots = new Map<string, string>([[repo, srcDir]])
+    for (const file of repoFiles) {
+      const module = moduleDirs.find((entry) => file.startsWith(entry.prefix))
+      const unit = module?.unit ?? repo
+      if (module) unitRoots.set(unit, module.dir)
+      const bucket = units.get(unit)
+      if (bucket) bucket.push(file)
+      else units.set(unit, [file])
+    }
+
+    for (const [unit, files] of units) {
+      const unitSrc = unitRoots.get(unit) ?? srcDir
+      let migrations = ''
+      try {
+        migrations = readFileSync(join(unitSrc, 'migrations.ts'), 'utf8')
+      } catch {
+        migrations = ''
+      }
+      const secretTables = secretBearingTables(migrations)
+      // Structural evidence, not a word match: a table column that holds a secret, or a module whose
+      // whole job is holding one. Matching the vocabulary against source text would make every
+      // repository "key-holding", because `material` is an English word and half the estate's comments
+      // use it.
+      const vaultModule = files.some((file) => /\/(vault|keyring|keyEnvelope|keys)\.ts$/.test(file))
+      if (secretTables.size > 0 || vaultModule) holdsKeyMaterial.push(unit)
+
+      scanUnit({ repo, unit, repoRoot, unitSrc, files, modules, secretTables })
+    }
+  }
+
+  function scanUnit(input: {
+    repo: string
+    unit: string
+    repoRoot: string
+    unitSrc: string
+    files: readonly string[]
+    modules: RepoModules
+    secretTables: ReadonlyMap<string, readonly string[]>
+  }): void {
+    const { repo, unit, repoRoot, unitSrc, files, modules, secretTables } = input
     let repoRoutes = 0
     let declaresRouteTable = false
 
@@ -1325,7 +1415,7 @@ export function scanEstate(options: ScanOptions): EstateScan {
       // Parsed with the ABSOLUTE path, so `modules.resolve` can follow a relative import out of
       // it. The RouteRef carries the repository-relative path, which is what a report must print.
       const tree = ts.createSourceFile(file, text, ts.ScriptTarget.ES2023, true, ts.ScriptKind.TS)
-      const handlers = collectRoutes(repo, relativeFile, tree)
+      const handlers = collectRoutes(repo, relativeFile, tree, unit)
       if (handlers.length === 0) continue
       repoRoutes += handlers.length
       routes.push(...handlers.map((handler) => handler.route))
@@ -1343,21 +1433,22 @@ export function scanEstate(options: ScanOptions): EstateScan {
     if (repoRoutes === 0) {
       if (declaresRouteTable) {
         unreadable.push({
-          service: repo,
-          file: 'src/server.ts',
+          service: unit,
+          file: `${relative(repoRoot, unitSrc)}/server.ts`,
           why: 'declares a route table this analyser read as zero routes — a fourth route spelling',
         })
       }
-      continue
+      return
     }
-    services.push(repo)
+    services.push(unit)
 
     // Read AFTER the routes, because the reconciliation needs both sides. Reconciled against this
-    // repository's routes only — a dynamic scan in custody says nothing about identity.
+    // SERVICE's routes only — a dynamic scan in custody says nothing about identity, and after the
+    // merge it says nothing about the fifteen other services sharing custody's process either.
     for (const ref of dynamicScans) {
-      if (ref.service !== repo) continue
+      if (ref.service !== unit) continue
       dynamicCoverage.push(
-        readDynamicCoverage(ref, repoRoot, routes.filter((route) => route.service === repo)),
+        readDynamicCoverage(ref, repoRoot, routes.filter((route) => route.unit === unit)),
       )
     }
   }
@@ -1692,6 +1783,7 @@ function judge(
   // both ends of the reach.
   const at = (reach: Reach) => ({
     service: route.service,
+    unit: route.unit,
     file: relative(repoRoot, reach.file),
     line: reach.line,
     method: route.method,
@@ -1805,7 +1897,17 @@ function judge(
 
 /** A route in a key-holding service whose body this scan could not fully read. */
 export interface BlindRoute {
+  /** The repository the route's files are in, so a printed path opens. */
   readonly service: string
+  /**
+   * The service it belongs to — see `RouteRef.unit`.
+   *
+   * The KEY is on this and not on `service`, and the difference is a real undercount rather than a
+   * cosmetic one: `agora` mounts twenty `GET /livez`, one per absorbed module, and keying on the
+   * repository collapsed all of them — including modules that hold no key material at all — into a
+   * single blind route displayed under the key-holding one that happened to be found first.
+   */
+  readonly unit: string
   readonly method: string
   readonly path: string
   readonly reasons: readonly OpaqueReason[]
@@ -1887,9 +1989,9 @@ export function reconcileBodyScan(
 
   const blind = new Map<string, BlindRoute>()
   for (const finding of scan.opaque) {
-    if (!scan.holdsKeyMaterial.includes(finding.service)) continue
+    if (!scan.holdsKeyMaterial.includes(finding.unit)) continue
     if (finding.reason === 'derived') continue
-    const key = `${finding.service} ${finding.method} ${finding.path}`
+    const key = `${finding.unit} ${finding.method} ${finding.path}`
     const existing = blind.get(key)
     const reason = finding.reason ?? 'unresolved'
     if (existing) {
@@ -1900,10 +2002,11 @@ export function reconcileBodyScan(
     }
     blind.set(key, {
       service: finding.service,
+      unit: finding.unit,
       method: finding.method,
       path: finding.path,
       reasons: [reason],
-      drivenDynamically: isDriven(finding.service, finding.method, finding.path),
+      drivenDynamically: isDriven(finding.unit, finding.method, finding.path),
     })
   }
   const blindRoutes = [...blind.values()]
@@ -1948,7 +2051,7 @@ export function reconcileBodyScan(
  * could actually read, broken down by why it could not read the rest.
  */
 function keyHoldingRoutes(scan: EstateScan): number {
-  return scan.routes.filter((route) => scan.holdsKeyMaterial.includes(route.service)).length
+  return scan.routes.filter((route) => scan.holdsKeyMaterial.includes(route.unit)).length
 }
 
 export function formatBodyScan(report: BodyScanReport, scan: EstateScan): string {
@@ -2035,9 +2138,13 @@ export function formatBodyScan(report: BodyScanReport, scan: EstateScan): string
   )
   for (const route of report.blindRoutes) {
     const witness = route.drivenDynamically ? '  ← driven dynamically' : ''
-    lines.push(`  ${route.service}  ${route.method} ${route.path}  [${route.reasons.join(' ')}]${witness}`)
+    // The SERVICE, then the repository holding it when they differ. Both, because one alone is
+    // useless: the service is what the gate judged, and the repository is what makes the paths
+    // underneath open.
+    const where = route.unit === route.service ? route.service : `${route.unit} (in ${route.service})`
+    lines.push(`  ${where}  ${route.method} ${route.path}  [${route.reasons.join(' ')}]${witness}`)
     for (const finding of report.opaque) {
-      if (finding.service !== route.service || finding.method !== route.method) continue
+      if (finding.unit !== route.unit || finding.method !== route.method) continue
       if (finding.path !== route.path || finding.reason === 'derived') continue
       lines.push(`      ${finding.file}:${finding.line}  ${finding.evidence}`)
     }
@@ -2062,7 +2169,7 @@ export function formatBodyScan(report: BodyScanReport, scan: EstateScan): string
   }
   if (scan.dynamicCoverage.length === 0) lines.push('  no service in this checkout declares a dynamic body scan')
   const unwatched = new Map<string, number>()
-  for (const route of report.blindToEveryCheck) unwatched.set(route.service, (unwatched.get(route.service) ?? 0) + 1)
+  for (const route of report.blindToEveryCheck) unwatched.set(route.unit, (unwatched.get(route.unit) ?? 0) + 1)
   for (const [service, count] of [...unwatched].sort((a, b) => b[1] - a[1])) {
     const has = scan.dynamicCoverage.some((coverage) => coverage.service === service)
     lines.push(`  ${String(count).padStart(3)}  ${service}${has ? '' : '   (no dynamic body scan at all)'}`)
